@@ -1,0 +1,44 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "version": "1.0.0",
+  "id": "YOUR_MICROSOFT_APP_ID", 
+  "name": {
+    "short": "My Python AI Bot",
+    "full": "My Python AI Bot for Teams"
+  },
+  "description": {
+    "short": "A Python AI bot for Teams",
+    "full": "This bot uses Python and AI services to interact with users in Microsoft Teams."
+  },
+  "icons": {
+    "color": "path/to/color.png", 
+    "outline": "path/to/outline.png" 
+  },
+  "accentColor": "#FFFFFF",
+  "developer": {
+    "name": "Your Name or Company",
+    "websiteUrl": "https://your-website.com",
+    "privacyUrl": "https://your-website.com/privacy",
+    "termsOfUseUrl": "https://your-website.com/terms"
+  },
+  "bots": [
+    {
+      "botId": "YOUR_MICROSOFT_APP_ID", 
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "webApplicationInfo": {
+    "id": "YOUR_MICROSOFT_APP_ID", 
+    "resource": "https://api.botframework.com"
+  },
+  "validDomains": [
+    "your-ngrok-url.com", 
+    "your-server-domain.com" 
+  ]
+}
