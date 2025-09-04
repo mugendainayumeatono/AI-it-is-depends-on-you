@@ -1,7 +1,0 @@
-botbuilder-core
-botbuilder-schema
-botbuilder-integration-flask
-python-dotenv
-google-generativeai
-Flask
-gunicorn

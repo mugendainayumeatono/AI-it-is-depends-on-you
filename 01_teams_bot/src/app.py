@@ -1,11 +1,11 @@
 import os
 from dotenv import load_dotenv
 from botbuilder.core import ConversationState, UserState
-from botbuilder.integration.flask import FlaskAdapter
+from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
 from flask import Flask, request
 
 # 从本地 bot 目录导入机器人类
-from src.bot.ai_bot import MyBot
+from bot.ai_bot import MyBot
 
 load_dotenv() # 加载 .env 文件中的环境变量
 
@@ -23,13 +23,21 @@ user_state = UserState(None)
 # 创建机器人实例
 bot = MyBot(conversation_state, user_state)
 
+# 配置 Bot Framework Adapter Settings
+settings = BotFrameworkAdapterSettings(APP_ID, APP_PASSWORD)
+
 # 配置 Bot Framework Flask Adapter
-bot_adapter = FlaskAdapter(bot, APP_ID, APP_PASSWORD)
+# BotFrameworkAdapter 构造函数只需要一个参数：settings
+# bot 实例应该通过 on_turn 方法传递给 adapter
+bot_adapter = BotFrameworkAdapter(settings)
 
 # 定义消息处理路由
 @app.route("/api/messages", methods=["POST"])
-async def messages_endpoint():
-    return await bot_adapter.process(request, bot.on_turn)
+def messages_endpoint():
+    # 使用 await bot_adapter.process 而不是直接调用，因为 Flask 的 route 装饰器默认不支持 async
+    # 需要一个异步运行器来处理 async 函数
+    import asyncio
+    return asyncio.run(bot_adapter.process(request, bot.on_turn))
 
 if __name__ == "__main__":
     # 运行 Flask 开发服务器
