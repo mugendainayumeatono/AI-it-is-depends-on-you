@@ -33,11 +33,12 @@ bot_adapter = BotFrameworkAdapter(settings)
 
 # 定义消息处理路由
 @app.route("/api/messages", methods=["POST"])
-def messages_endpoint():
+async def messages_endpoint():
     # 使用 await bot_adapter.process 而不是直接调用，因为 Flask 的 route 装饰器默认不支持 async
     # 需要一个异步运行器来处理 async 函数
-    import asyncio
-    return asyncio.run(bot_adapter.process(request, bot.on_turn))
+    # import asyncio # Removed as asyncio.run is no longer needed
+    await bot_adapter.process_activity(request, bot.on_turn)
+    return {}, 200
 
 if __name__ == "__main__":
     # 运行 Flask 开发服务器
