@@ -3,12 +3,12 @@ from unittest.mock import patch, MagicMock
 import os
 
 # Assuming ai_service.py is in the src/bot directory
-from src.bot.ai_service import GeminiAIService
+from bot.ai_service import GeminiAIService
 
 # Mock the google.generativeai library
 @pytest.fixture
 def mock_genai():
-    with patch('src.bot.ai_service.genai') as mock_genai_module:
+    with patch('bot.ai_service.genai') as mock_genai_module:
         # Mock the GenerativeModel and its start_chat method
         mock_model = MagicMock()
         mock_chat = MagicMock()

@@ -4,12 +4,12 @@ from botbuilder.core import TurnContext
 from botbuilder.schema import Activity, ChannelAccount
 
 # Assuming ai_bot.py is in the src/bot directory
-from src.bot.ai_bot import MyBot
+from bot.ai_bot import MyBot
 
 # Mock the GeminiAIService and its get_ai_response method
 @pytest.fixture
 def mock_ai_service():
-    with patch('src.bot.ai_bot.ai_service') as mock_service:
+    with patch('bot.ai_bot.ai_service') as mock_service:
         # Make get_ai_response an async mock that returns an awaitable
         async def mock_get_ai_response(*args, **kwargs):
             return "Mocked AI Response"

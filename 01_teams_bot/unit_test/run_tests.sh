@@ -1,0 +1,1 @@
+cd "$(dirname "$0")" && source ../src/venv/bin/activate && PYTHONPATH=../src pytest .

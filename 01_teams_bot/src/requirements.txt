@@ -6,3 +6,5 @@ Flask
 gunicorn
 aiohttp
 flask[async]
+pytest
+pytest-asyncio

@@ -6,7 +6,7 @@ from flask import Flask
 from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
 
 # Assuming app.py is in the root of the project or accessible via PYTHONPATH
-from src.app import app, conversation_state, user_state, bot, settings, bot_adapter
+from app import app, conversation_state, user_state, bot, settings, bot_adapter
 
 # Fixture to provide a test client for the Flask app
 @pytest.fixture
