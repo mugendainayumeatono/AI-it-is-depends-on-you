@@ -13,7 +13,7 @@ tmp=$(mktemp)
 
 # 使用jq工具更新validDomains, id, 和 botId 字段
 jq --arg new_domain "$VALID_DOMAINS" --arg app_id "$MICROSOFT_APP_ID" \
-'.validDomains = [$new_domain] | .id = $app_id | .bots[0].botId = $app_id' \
+'.validDomains = [$new_domain] | .id = $app_id | .bots[0].botId = $app_id | .webApplicationInfo.id = $app_id' \
 manifest.json > "$tmp" && mv "$tmp" manifest.json
 
 echo "manifest.json has been successfully updated."
