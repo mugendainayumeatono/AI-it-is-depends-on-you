@@ -8,6 +8,13 @@ VALID_DOMAINS=$(grep -oP '(?<=ValidDomains=).*' .env)
 MICROSOFT_APP_ID=$(grep -oP '(?<=MicrosoftAppId=).*' .env)
 
 # 使用从.env读取的值更新manifest.json
+# 复制templates_manifest.json作为manifest.json
+# 如果manifest.json已存在，先删除
+if [ -f manifest.json ]; then
+    rm manifest.json
+fi
+cp templates_manifest.json manifest.json
+
 # 为了更新json，创建一个临时文件
 tmp=$(mktemp)
 
@@ -15,6 +22,7 @@ tmp=$(mktemp)
 jq --arg new_domain "$VALID_DOMAINS" --arg app_id "$MICROSOFT_APP_ID" \
 '.validDomains = [$new_domain] | .id = $app_id | .bots[0].botId = $app_id | .webApplicationInfo.id = $app_id' \
 manifest.json > "$tmp" && mv "$tmp" manifest.json
+
 
 echo "manifest.json has been successfully updated."
 
