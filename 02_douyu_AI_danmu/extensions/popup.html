@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>斗鱼弹幕发送器</title>
+  <style>
+    body {
+      width: 250px;
+      font-family: sans-serif;
+      padding: 10px;
+    }
+    textarea {
+      width: 95%;
+      margin-bottom: 10px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #f86;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #f75;
+    }
+  </style>
+</head>
+<body>
+  <h3>输入弹幕内容</h3>
+  <textarea id="message" rows="4"></textarea>
+  <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+    <button id="sendButton" style="width: 50%;">发送</button>
+    <button id="aiGenerateButton" style="width: 50%; background-color: #4CAF50;">AI生成弹幕</button>
+  </div>
+  <hr>
+  <div style="margin-top: 10px;">
+    <label for="providerSelect">AI 接口:</label>
+    <select id="providerSelect" style="width: 95%;"></select>
+  </div>
+  <div style="margin-top: 10px;">
+    <label for="apiKey">API 密钥:</label>
+    <input type="password" id="apiKey" style="width: 95%;">
+  </div>
+  <div style="margin-top: 10px;">
+    <label for="modelSelect">AI 模型:</label>
+    <select id="modelSelect" style="width: 95%;">
+    </select>
+  </div>
+  <div id="status" style="margin-top: 10px; color: red;"></div>
+  <script src="config.js"></script>
+  <script src="ai_service.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
