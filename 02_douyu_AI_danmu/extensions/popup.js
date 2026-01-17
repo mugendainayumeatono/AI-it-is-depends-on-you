@@ -5,11 +5,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const apiKeyInput = document.getElementById('apiKey');
   const providerSelect = document.getElementById('providerSelect');
   const modelSelect = document.getElementById('modelSelect');
+  const promptInput = document.getElementById('prompt');
   const statusDiv = document.getElementById('status');
 
   let apiKey = null;
   let selectedProvider = null;
   let selectedModel = null;
+  let userPrompt = null;
 
   // 从配置填充接口下拉菜单
   config.aiProviders.forEach(provider => {
@@ -20,12 +22,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // 从存储加载已保存的设置
-  const result = await chrome.storage.sync.get(['apiKey', 'selectedProvider', 'selectedModel']);
+  const result = await chrome.storage.sync.get(['apiKey', 'selectedProvider', 'selectedModel', 'userPrompt']);
   apiKey = result.apiKey;
   apiKeyInput.value = apiKey || '';
   selectedProvider = result.selectedProvider || config.aiProviders[0].value;
   providerSelect.value = selectedProvider;
   selectedModel = result.selectedModel;
+  userPrompt = result.userPrompt || config.prompt;
+  promptInput.value = userPrompt;
+
 
   // 当设置更改时保存到存储
   apiKeyInput.addEventListener('input', () => {
@@ -47,6 +52,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   modelSelect.addEventListener('change', () => {
     selectedModel = modelSelect.value;
     chrome.storage.sync.set({ selectedModel: selectedModel });
+  });
+
+  promptInput.addEventListener('input', () => {
+    userPrompt = promptInput.value;
+    chrome.storage.sync.set({ userPrompt: userPrompt });
   });
 
   // 填充模型下拉菜单的函数
@@ -87,7 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusDiv.textContent = '模型列表加载成功。';
         statusDiv.style.color = 'green';
       } else {
-        statusDiv.textContent = '没有可用的AI模型，请检查API密钥或权限。';
+        statusDiv.textContent = '沒有可用的AI模型，请检查API密钥或权限。';
         statusDiv.style.color = 'red';
       }
     } catch (error) {
@@ -137,13 +147,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusDiv.style.color = 'red';
       return;
     }
+    if (!userPrompt) {
+      statusDiv.textContent = '请输入AI提示词！';
+      statusDiv.style.color = 'red';
+      return;
+    }
 
     statusDiv.textContent = 'AI正在生成弹幕...';
     statusDiv.style.color = 'black';
     messageInput.value = '';
 
     try {
-      const response = await aiService.generateDanmu(selectedProvider, apiKey, selectedModel);
+      const response = await aiService.generateDanmu(selectedProvider, apiKey, selectedModel, userPrompt);
       messageInput.value = response;
       statusDiv.textContent = '弹幕生成成功！';
       statusDiv.style.color = 'green';

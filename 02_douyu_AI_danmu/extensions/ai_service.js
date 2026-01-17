@@ -1,9 +1,7 @@
 // ai_service.js
 
 const aiService = {
-  async generateDanmu(provider, apiKey, model) {
-    const prompt = config.prompt; // 从 config.js 使用 prompt
-    
+  async generateDanmu(provider, apiKey, model, prompt) {
     if (provider === 'gemini') {
       return this.callGeminiAPI(apiKey, model, prompt);
     }
