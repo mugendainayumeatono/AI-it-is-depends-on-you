@@ -33,5 +33,5 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({status: "error", message: "未找到弹幕输入框或发送按钮"});
     }
   }
-  return true; // Keep the message channel open for the response
+  return true; // 保持消息通道开启以进行异步响应
 });

@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let userPrompt = null;
   let isAutoSyncEnabled = false;
 
-  // Settings Button
+  // 设置按钮
   settingsBtn.addEventListener('click', () => {
     if (chrome.runtime.openOptionsPage) {
       chrome.runtime.openOptionsPage();
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Populate Provider Dropdown
+  // 填充服务商下拉列表
   config.aiProviders.forEach(provider => {
     const option = document.createElement('option');
     option.value = provider.value;
@@ -35,10 +35,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     providerSelect.appendChild(option);
   });
 
-  // --- Load Configuration ---
+  // --- 加载配置 ---
   async function loadConfiguration() {
     try {
-      // Check Auto-Sync status
+      // 检查自动同步状态
       const syncState = await chrome.storage.sync.get('autoSyncEnabled');
       isAutoSyncEnabled = !!syncState.autoSyncEnabled;
 
@@ -51,13 +51,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             const fileConfig = await fileManager.readFromFile();
             if (fileConfig) {
-              // Update local vars
+              // 更新本地变量
               apiKey = fileConfig.apiKey;
               selectedProvider = fileConfig.selectedProvider;
               selectedModel = fileConfig.selectedModel;
               userPrompt = fileConfig.userPrompt;
 
-              // Also update storage to keep them in sync
+              // 同时更新存储以保持同步
               await chrome.storage.sync.set(fileConfig);
 
               statusDiv.textContent = '外部配置加载成功';
@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } 
       
-      // Load from Storage (either synced from file just now, or standard storage)
+      // 从存储加载（可能是刚才从文件同步的，或者是标准存储）
       const result = await chrome.storage.sync.get(['apiKey', 'selectedProvider', 'selectedModel', 'userPrompt']);
       apiKey = result.apiKey;
       selectedProvider = result.selectedProvider;
@@ -82,12 +82,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       userPrompt = result.userPrompt;
 
 
-      // Apply to UI
+      // 应用到 UI
       apiKeyInput.value = apiKey || '';
       providerSelect.value = selectedProvider || config.aiProviders[0].value;
       promptInput.value = userPrompt || config.prompt;
       
-      // Load Models
+      // 加载模型
       if (apiKey) {
         populateModelsDropdown(providerSelect.value, apiKey, selectedModel);
       } else {
@@ -95,25 +95,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
     } catch (e) {
-      console.error('Load config error:', e);
+      console.error('加载配置出错:', e);
       statusDiv.textContent = '加载配置出错';
     }
   }
 
   await loadConfiguration();
 
-  // --- Save Configuration ---
+  // --- 保存配置 ---
   async function saveConfiguration(updates) {
-    // Update local variables
+    // 更新本地变量
     if (updates.apiKey !== undefined) apiKey = updates.apiKey;
     if (updates.selectedProvider !== undefined) selectedProvider = updates.selectedProvider;
     if (updates.selectedModel !== undefined) selectedModel = updates.selectedModel;
     if (updates.userPrompt !== undefined) userPrompt = updates.userPrompt;
 
-    // Save to Chrome Storage first
+    // 首先保存到 Chrome 存储
     await chrome.storage.sync.set(updates);
 
-    // If Auto-Sync is ON, also write to file
+    // 如果启用了自动同步，同时写入文件
     if (isAutoSyncEnabled) {
        try {
         const dataToSave = {
@@ -124,14 +124,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         await fileManager.writeToFile(dataToSave);
       } catch (err) {
-        console.error('Auto-sync save failed:', err);
+        console.error('自动同步保存失败:', err);
         statusDiv.textContent = '自动保存到文件失败: ' + err.message;
         statusDiv.style.color = 'orange';
       }
     }
   }
 
-  // --- Event Listeners for Inputs ---
+  // --- 输入框事件监听 ---
   
   apiKeyInput.addEventListener('input', () => {
     saveConfiguration({ apiKey: apiKeyInput.value });
@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveConfiguration({ userPrompt: promptInput.value });
   });
 
-  // --- Helper Functions ---
+  // --- 辅助函数 ---
 
   async function populateModelsDropdown(provider, currentApiKey, currentSelectedModel) {
     if (!currentApiKey) {

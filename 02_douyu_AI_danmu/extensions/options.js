@@ -10,38 +10,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let currentHandle = null;
 
-  // Initialize
+  // 初始化
   await checkStoredHandle();
   await loadSyncState();
 
-  // 1. Select File Button
+  // 1. 选择文件按钮
   selectFileBtn.addEventListener('click', async () => {
     try {
       statusDiv.textContent = '正在选择文件...';
       statusDiv.style.color = 'blue';
 
-      // Use showSaveFilePicker to allow creating new or picking existing
-      const handle = await window.showSaveFilePicker({
-        suggestedName: 'douyu_danmu_config.json',
+      // 使用 showOpenFilePicker 以避免“是否覆盖？”提示和“保存”标题。
+      // 这仅用于选择 现有 文件。
+      const handles = await window.showOpenFilePicker({
         types: [{
           description: 'JSON Configuration File',
           accept: { 'application/json': ['.json'] },
         }],
+        multiple: false
       });
-
-      await setFileHandle(handle);
-      statusDiv.textContent = '文件已选择: ' + handle.name;
-      statusDiv.style.color = 'green';
       
-      // If auto-sync is on, try to read immediately (or write if empty?)
-      // Let's just try to read.
-      if (autoSyncCheckbox.checked) {
-        await readFromFile();
-      }
+      const handle = handles[0];
+      await setFileHandle(handle);
+      
+      statusDiv.textContent = '文件已选择: ' + handle.name + '。请点击“从文件读取”或“保存到文件”进行操作。';
+      statusDiv.style.color = 'green';
 
     } catch (err) {
       if (err.name !== 'AbortError') {
-        console.error('File selection failed:', err);
+        console.error('文件选择失败:', err);
         statusDiv.textContent = '文件选择失败: ' + err.message;
         statusDiv.style.color = 'red';
       } else {
@@ -51,16 +48,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // 2. Save Button (Export to File)
+  // 2. 保存按钮（导出到文件）
   saveToFileBtn.addEventListener('click', async () => {
     try {
+      // 如果未选择文件，则此操作相当于“另存为” / “新建”
+      if (!currentHandle) {
+         try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: 'douyu_danmu_config.json',
+                types: [{
+                  description: 'JSON Configuration File',
+                  accept: { 'application/json': ['.json'] },
+                }],
+            });
+            await setFileHandle(handle);
+         } catch (e) {
+             if (e.name === 'AbortError') return; // 用户取消了创建
+             throw e;
+         }
+      }
+      
       await saveToFile();
     } catch (err) {
       handleError(err, '保存失败');
     }
   });
 
-  // 3. Read Button (Import from File)
+  // 3. 读取按钮（从文件导入）
   readFromFileBtn.addEventListener('click', async () => {
     try {
       await readFromFile();
@@ -69,7 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // 4. Auto-Sync Checkbox
+  // 4. 自动同步复选框
   autoSyncCheckbox.addEventListener('change', async () => {
     const isEnabled = autoSyncCheckbox.checked;
     await chrome.storage.sync.set({ 'autoSyncEnabled': isEnabled });
@@ -83,12 +97,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         statusDiv.textContent = '自动同步已启用。';
         statusDiv.style.color = 'green';
-        // Try to read immediately to sync state
+        // 尝试立即读取以同步状态
         try {
            await readFromFile();
         } catch (e) {
-           console.warn('Auto-sync initial read failed:', e);
-           // Don't disable, just warn
+           console.warn('自动同步初始读取失败:', e);
+           // 不禁用，仅警告
         }
       }
     } else {
@@ -98,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
 
-  // --- Helper Functions ---
+  // --- 辅助函数 ---
 
   async function checkStoredHandle() {
     try {
@@ -109,11 +123,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveToFileBtn.disabled = false;
         readFromFileBtn.disabled = false;
         
-        // Attempt auto-read if enabled
+        // 如果启用了自动同步，尝试自动读取
         const syncState = await chrome.storage.sync.get('autoSyncEnabled');
         if (syncState.autoSyncEnabled) {
              try {
-                 await readFromFile(true); // silent mode
+                 await readFromFile(true); // 静默模式
                  statusDiv.textContent = '已自动读取文件配置';
                  statusDiv.style.color = 'green';
              } catch (e) {
@@ -125,7 +139,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     } catch (err) {
-      console.error('Error checking handle:', err);
+      console.error('检查句柄出错:', err);
     }
   }
 
@@ -143,11 +157,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function saveToFile() {
-    if (!currentHandle) throw new Error('未选择文件');
+    if (!currentHandle) throw new Error('未选择文件'); // 虽然调用者已处理，但为了安全起见保留
     
     statusDiv.textContent = '正在保存...';
     
-    // Get current config from storage
+    // 从存储获取当前配置
     const data = await chrome.storage.sync.get(['apiKey', 'userPrompt', 'selectedProvider', 'selectedModel']);
     const configToSave = {
       apiKey: data.apiKey || '',
@@ -169,7 +183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const config = await fileManager.readFromFile();
     if (config) {
-      // Update Chrome Storage
+      // 更新 Chrome 存储
       await chrome.storage.sync.set({
         apiKey: config.apiKey,
         userPrompt: config.userPrompt,
