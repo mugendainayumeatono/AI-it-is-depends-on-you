@@ -9,6 +9,12 @@
       font-family: sans-serif;
       padding: 10px;
     }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
     textarea {
       width: 95%;
       margin-bottom: 10px;
@@ -24,14 +30,27 @@
     button:hover {
       background-color: #f75;
     }
+    .icon-btn {
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      padding: 5px;
+      font-size: 1.2em;
+      width: auto;
+    }
+    .icon-btn:hover { background-color: #eee; border-radius: 50%; }
   </style>
 </head>
 <body>
-  <h3>输入弹幕内容</h3>
-  <textarea id="message" rows="4"></textarea>
+  <div class="header">
+    <h3 style="margin: 0;">弹幕助手</h3>
+    <button id="settingsBtn" class="icon-btn" title="设置">⚙️</button>
+  </div>
+  <textarea id="message" rows="4" placeholder="输入弹幕内容..."></textarea>
   <div style="display: flex; gap: 5px; margin-bottom: 10px;">
     <button id="sendButton" style="width: 50%;">发送</button>
-    <button id="aiGenerateButton" style="width: 50%; background-color: #4CAF50;">AI生成弹幕</button>
+    <button id="aiGenerateButton" style="width: 50%; background-color: #4CAF50;">AI生成</button>
   </div>
   <hr>
   <div style="margin-top: 10px;">
@@ -54,6 +73,6 @@
   <div id="status" style="margin-top: 10px; color: red;"></div>
   <script src="config.js"></script>
   <script src="ai_service.js"></script>
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

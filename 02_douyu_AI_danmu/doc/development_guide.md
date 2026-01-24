@@ -13,7 +13,10 @@ extensions/
 ├── ai_service.js      # 封装与AI模型API的交互逻辑
 ├── config.js          # 存放核心配置，如API选择器、Prompt等
 ├── content.js         # 内容脚本，注入到斗鱼页面，负责操作DOM（发送弹幕）
+├── file_manager.js    # 负责处理本地文件读写（File System Access API）与IndexedDB操作
 ├── manifest.json      # 扩展清单文件，定义权限、入口等
+├── options.html       # 扩展的设置页面，用于配置外部文件存储等高级选项
+├── options.js         # 设置页面的逻辑处理脚本
 ├── popup.html         # 扩展的弹出界面UI
 └── popup.js           # 处理弹出界面的用户交互逻辑
 ```
@@ -72,6 +75,19 @@ extensions/
 *   **`prompt`**: 这是AI生成弹幕的灵魂。它是一个精心设计的提示，用于指导AI模型的输出风格、内容和格式，确保生成的弹幕符合直播间互动场景。
 *   **`danmuInputSelector`** & **`danmuSendButtonSelector`**: 这是连接扩展与斗鱼页面的桥梁。通过CSS选择器，`content.js`可以精确地定位到目标元素。如果斗鱼前端代码更新导致选择器失效，只需在此处修改即可，无需改动核心逻辑代码。
 
+### 3.4. 外部配置管理 (Local File Sync)
+
+为了方便调试和配置共享，插件支持将配置（API Key, Prompt等）保存到本地 JSON 文件中。
+
+1.  **`options.html` & `options.js`**:
+    *   提供独立设置页面，通过 `popup.html` 右上角的设置按钮进入。
+    *   使用 **File System Access API** (`window.showSaveFilePicker`) 获取用户指定文件的读写权限。
+    *   **手动模式**：用户可以点击按钮手动将当前配置保存到文件，或从文件读取配置覆盖当前设置。
+    *   **自动同步 (Auto-Sync)**：开启后，插件会在启动时自动从文件加载配置，并在配置发生更改时自动写入文件。
+2.  **`file_manager.js`**:
+    *   封装文件系统操作。
+    *   使用 **IndexedDB** (`DouyuDanmuDB`) 持久化存储文件句柄 (`FileSystemFileHandle`)，确保浏览器重启后只需重新验证权限即可再次访问文件，无需用户重新选择文件。
+
 ## 4. 如何扩展
 
 ### 添加新的AI服务商 (例如 OpenAI)
@@ -92,4 +108,10 @@ extensions/
 *   **选择器健壮性**：斗鱼前端的更新可能会导致CSS选择器失效。届时需要更新 `config.js` 中的选择器。
 *   **错误处理**：大部分错误（如API密钥无效、网络问题、模型加载失败）都会通过 `popup.html` 的状态栏反馈给用户，便于排查问题。
 
----
+## 6. 更新履历
+
+### 2026-01-24
+*   **新增功能**: 添加配置页 (`options.html`)，支持将配置保存到本地 JSON 文件。
+*   **新增功能**: 实现“自动同步”功能，可将本地文件作为配置的单一数据源。
+*   **UI优化**: 在 Popup 界面增加设置按钮入口。
+*   **代码重构**: 新增 `file_manager.js` 模块，统一处理文件系统与 IndexedDB 操作。

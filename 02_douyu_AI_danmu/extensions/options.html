@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>斗鱼弹幕助手配置</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .section {
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      background-color: #f9f9f9;
+    }
+    h2 { margin-top: 0; font-size: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    label { display: block; margin-bottom: 5px; }
+    button {
+      padding: 8px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 3px;
+      margin-right: 5px;
+    }
+    button:hover { background-color: #45a049; }
+    button.secondary { background-color: #2196F3; }
+    button.secondary:hover { background-color: #1e88e5; }
+    button.action { background-color: #FF9800; }
+    button.action:hover { background-color: #F57C00; }
+    
+    .status { margin-top: 10px; font-weight: bold; min-height: 20px; }
+    .warning { color: #666; font-size: 0.9em; margin-top: 5px; }
+    .file-info { margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px; }
+    .control-group { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>设置</h1>
+
+  <div class="section">
+    <h2>本地文件配置</h2>
+    <p class="warning">您可以选择一个本地 JSON 文件来保存和读取配置（API Key、提示词等）。</p>
+    
+    <div class="file-info">
+      <strong>当前文件:</strong> <span id="fileName">未选择</span>
+    </div>
+
+    <div class="control-group">
+      <button id="selectFileBtn" class="secondary">选择/新建文件</button>
+    </div>
+
+    <div class="control-group">
+      <button id="saveToFileBtn" class="action" disabled>保存到文件</button>
+      <button id="readFromFileBtn" class="action" disabled>从文件读取</button>
+    </div>
+
+    <div class="control-group" style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px;">
+      <input type="checkbox" id="autoSyncCheckbox">
+      <label for="autoSyncCheckbox" style="margin: 0; cursor: pointer; font-weight: bold;">启用自动同步 (Auto-Sync)</label>
+    </div>
+    <p class="warning" style="margin-left: 24px;">选中后，插件启动时将自动读取该文件，配置更改时自动写入该文件。</p>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

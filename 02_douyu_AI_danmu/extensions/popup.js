@@ -1,7 +1,11 @@
+import { fileManager } from './file_manager.js';
+
 document.addEventListener('DOMContentLoaded', async () => {
   const messageInput = document.getElementById('message');
   const sendButton = document.getElementById('sendButton');
   const aiGenerateButton = document.getElementById('aiGenerateButton');
+  const settingsBtn = document.getElementById('settingsBtn');
+  
   const apiKeyInput = document.getElementById('apiKey');
   const providerSelect = document.getElementById('providerSelect');
   const modelSelect = document.getElementById('modelSelect');
@@ -12,8 +16,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   let selectedProvider = null;
   let selectedModel = null;
   let userPrompt = null;
+  let isAutoSyncEnabled = false;
 
-  // 从配置填充接口下拉菜单
+  // Settings Button
+  settingsBtn.addEventListener('click', () => {
+    if (chrome.runtime.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
+    } else {
+      window.open(chrome.runtime.getURL('options.html'));
+    }
+  });
+
+  // Populate Provider Dropdown
   config.aiProviders.forEach(provider => {
     const option = document.createElement('option');
     option.value = provider.value;
@@ -21,49 +35,128 @@ document.addEventListener('DOMContentLoaded', async () => {
     providerSelect.appendChild(option);
   });
 
-  // 从存储加载已保存的设置
-  const result = await chrome.storage.sync.get(['apiKey', 'selectedProvider', 'selectedModel', 'userPrompt']);
-  apiKey = result.apiKey;
-  apiKeyInput.value = apiKey || '';
-  selectedProvider = result.selectedProvider || config.aiProviders[0].value;
-  providerSelect.value = selectedProvider;
-  selectedModel = result.selectedModel;
-  userPrompt = result.userPrompt || config.prompt;
-  promptInput.value = userPrompt;
+  // --- Load Configuration ---
+  async function loadConfiguration() {
+    try {
+      // Check Auto-Sync status
+      const syncState = await chrome.storage.sync.get('autoSyncEnabled');
+      isAutoSyncEnabled = !!syncState.autoSyncEnabled;
+
+      if (isAutoSyncEnabled) {
+        const handle = await fileManager.getHandle();
+        if (handle) {
+          statusDiv.textContent = '正在从本地文件同步配置...';
+          statusDiv.style.color = 'blue';
+          
+          try {
+            const fileConfig = await fileManager.readFromFile();
+            if (fileConfig) {
+              // Update local vars
+              apiKey = fileConfig.apiKey;
+              selectedProvider = fileConfig.selectedProvider;
+              selectedModel = fileConfig.selectedModel;
+              userPrompt = fileConfig.userPrompt;
+
+              // Also update storage to keep them in sync
+              await chrome.storage.sync.set(fileConfig);
+
+              statusDiv.textContent = '外部配置加载成功';
+              statusDiv.style.color = 'green';
+            }
+          } catch (err) {
+            if (err.message === 'NEED_PERMISSION') {
+              statusDiv.textContent = '需要文件权限。请在设置页重新授权。';
+            } else {
+              statusDiv.textContent = '同步外部文件失败: ' + err.message;
+            }
+            statusDiv.style.color = 'red';
+          }
+        }
+      } 
+      
+      // Load from Storage (either synced from file just now, or standard storage)
+      const result = await chrome.storage.sync.get(['apiKey', 'selectedProvider', 'selectedModel', 'userPrompt']);
+      apiKey = result.apiKey;
+      selectedProvider = result.selectedProvider;
+      selectedModel = result.selectedModel;
+      userPrompt = result.userPrompt;
 
 
-  // 当设置更改时保存到存储
+      // Apply to UI
+      apiKeyInput.value = apiKey || '';
+      providerSelect.value = selectedProvider || config.aiProviders[0].value;
+      promptInput.value = userPrompt || config.prompt;
+      
+      // Load Models
+      if (apiKey) {
+        populateModelsDropdown(providerSelect.value, apiKey, selectedModel);
+      } else {
+        populateModelsDropdown(providerSelect.value, null, null);
+      }
+
+    } catch (e) {
+      console.error('Load config error:', e);
+      statusDiv.textContent = '加载配置出错';
+    }
+  }
+
+  await loadConfiguration();
+
+  // --- Save Configuration ---
+  async function saveConfiguration(updates) {
+    // Update local variables
+    if (updates.apiKey !== undefined) apiKey = updates.apiKey;
+    if (updates.selectedProvider !== undefined) selectedProvider = updates.selectedProvider;
+    if (updates.selectedModel !== undefined) selectedModel = updates.selectedModel;
+    if (updates.userPrompt !== undefined) userPrompt = updates.userPrompt;
+
+    // Save to Chrome Storage first
+    await chrome.storage.sync.set(updates);
+
+    // If Auto-Sync is ON, also write to file
+    if (isAutoSyncEnabled) {
+       try {
+        const dataToSave = {
+          apiKey: apiKey,
+          selectedProvider: selectedProvider,
+          selectedModel: selectedModel,
+          userPrompt: userPrompt
+        };
+        await fileManager.writeToFile(dataToSave);
+      } catch (err) {
+        console.error('Auto-sync save failed:', err);
+        statusDiv.textContent = '自动保存到文件失败: ' + err.message;
+        statusDiv.style.color = 'orange';
+      }
+    }
+  }
+
+  // --- Event Listeners for Inputs ---
+  
   apiKeyInput.addEventListener('input', () => {
-    apiKey = apiKeyInput.value;
-    chrome.storage.sync.set({ apiKey: apiKey });
-    // 如果API密钥更改，则重新加载模型
-    if (apiKey) {
-      populateModelsDropdown(selectedProvider, apiKey, selectedModel);
+    saveConfiguration({ apiKey: apiKeyInput.value });
+    if (apiKeyInput.value) {
+      populateModelsDropdown(providerSelect.value, apiKeyInput.value, selectedModel);
     }
   });
 
   providerSelect.addEventListener('change', () => {
-    selectedProvider = providerSelect.value;
-    chrome.storage.sync.set({ selectedProvider: selectedProvider });
-    // 当接口更改时重新加载模型
-    populateModelsDropdown(selectedProvider, apiKey, selectedModel);
+    saveConfiguration({ selectedProvider: providerSelect.value });
+    populateModelsDropdown(providerSelect.value, apiKey, selectedModel);
   });
   
   modelSelect.addEventListener('change', () => {
-    selectedModel = modelSelect.value;
-    chrome.storage.sync.set({ selectedModel: selectedModel });
+    saveConfiguration({ selectedModel: modelSelect.value });
   });
 
   promptInput.addEventListener('input', () => {
-    userPrompt = promptInput.value;
-    chrome.storage.sync.set({ userPrompt: userPrompt });
+    saveConfiguration({ userPrompt: promptInput.value });
   });
 
-  // 填充模型下拉菜单的函数
-  async function populateModelsDropdown(provider, apiKey, currentSelectedModel) {
-    if (!apiKey) {
-      statusDiv.textContent = '请输入API密钥以获取模型列表。';
-      statusDiv.style.color = 'red';
+  // --- Helper Functions ---
+
+  async function populateModelsDropdown(provider, currentApiKey, currentSelectedModel) {
+    if (!currentApiKey) {
       modelSelect.innerHTML = '';
       return;
     }
@@ -75,8 +168,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       let models = [];
       if (provider === 'gemini' || provider === 'gemini3') {
-        models = await aiService.listAvailableModels(provider, apiKey);
-      } // 未来在此处添加其他接口
+        models = await aiService.listAvailableModels(provider, currentApiKey);
+      }
       
       if (models.length > 0) {
         models.forEach(model => {
@@ -90,10 +183,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           modelSelect.value = currentSelectedModel;
         } else {
           modelSelect.value = models[0];
-          chrome.storage.sync.set({ selectedModel: models[0] });
+          saveConfiguration({ selectedModel: models[0] });
         }
-        selectedModel = modelSelect.value;
-
         statusDiv.textContent = '模型列表加载成功。';
         statusDiv.style.color = 'green';
       } else {
@@ -106,9 +197,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusDiv.style.color = 'red';
     }
   }
-
-  // 初始化填充模型下拉菜单
-  populateModelsDropdown(selectedProvider, apiKey, selectedModel);
 
   sendButton.addEventListener('click', () => {
     const message = messageInput.value;
@@ -142,12 +230,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusDiv.style.color = 'red';
       return;
     }
-    if (!selectedModel) {
+    if (!modelSelect.value) {
       statusDiv.textContent = '请选择一个AI模型！';
       statusDiv.style.color = 'red';
       return;
     }
-    if (!userPrompt) {
+    if (!promptInput.value) {
       statusDiv.textContent = '请输入AI提示词！';
       statusDiv.style.color = 'red';
       return;
@@ -158,7 +246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     messageInput.value = '';
 
     try {
-      const response = await aiService.generateDanmu(selectedProvider, apiKey, selectedModel, userPrompt);
+      const response = await aiService.generateDanmu(selectedProvider, apiKey, modelSelect.value, promptInput.value);
       messageInput.value = response;
       statusDiv.textContent = '弹幕生成成功！';
       statusDiv.style.color = 'green';
