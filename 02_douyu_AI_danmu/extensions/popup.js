@@ -74,8 +74,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       let models = [];
-      if (provider === 'gemini') {
-        models = await aiService.listAvailableModels(apiKey);
+      if (provider === 'gemini' || provider === 'gemini3') {
+        models = await aiService.listAvailableModels(provider, apiKey);
       } // 未来在此处添加其他接口
       
       if (models.length > 0) {

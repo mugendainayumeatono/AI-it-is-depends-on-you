@@ -3,7 +3,8 @@
 const config = {
   // AI接口列表
   aiProviders: [
-    { name: 'Gemini', value: 'gemini' }
+    { name: 'Gemini', value: 'gemini' },
+    { name: 'Gemini 3', value: 'gemini3' }
     // 未来可在此处添加更多接口, 例如:
     // { name: 'OpenAI', value: 'openai' }
   ],
