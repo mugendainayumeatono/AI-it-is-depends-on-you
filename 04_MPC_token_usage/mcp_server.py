@@ -5,8 +5,31 @@ from google.protobuf.timestamp_pb2 import Timestamp
 import datetime
 import logging
 
+import sys
+import os
+
 # Initialize FastMCP server
 mcp = FastMCP("google-token-usage")
+
+def debug_credentials():
+    print("\n--- DEBUG INFO ---", file=sys.stderr)
+    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    print(f"GOOGLE_APPLICATION_CREDENTIALS: {creds_path}", file=sys.stderr)
+    
+    if creds_path:
+        if os.path.exists(creds_path):
+            print(f"File exists at path: Yes", file=sys.stderr)
+            try:
+                with open(creds_path, 'r') as f:
+                    print("File content:", file=sys.stderr)
+                    print(f.read(), file=sys.stderr)
+            except Exception as e:
+                print(f"Error reading file: {e}", file=sys.stderr)
+        else:
+            print(f"File exists at path: No", file=sys.stderr)
+    else:
+        print("GOOGLE_APPLICATION_CREDENTIALS is NOT set.", file=sys.stderr)
+    print("------------------\n", file=sys.stderr)
 
 @mcp.tool()
 def list_token_metrics(project_id: str) -> str:
@@ -19,7 +42,12 @@ def list_token_metrics(project_id: str) -> str:
         project_name = f"projects/{project_id}"
         
         filter_str = 'metric.type = has_substring("token")'
-        results = client.list_metric_descriptors(name=project_name, filter=filter_str)
+        results = client.list_metric_descriptors(
+            request={
+                "name": project_name,
+                "filter": filter_str,
+            }
+        )
         
         metrics = []
         for result in results:
@@ -139,4 +167,6 @@ def query_billing_token_usage_from_bigquery(project_id: str, table_id: str) -> s
         return f"Error querying BigQuery: {str(e)}\nHint: Ensure you have the 'BigQuery Data Viewer' and 'BigQuery Job User' roles, and the table ID is correct."
 
 if __name__ == "__main__":
+    if os.environ.get("MCP_DEBUG") == "true":
+        debug_credentials()
     mcp.run()
