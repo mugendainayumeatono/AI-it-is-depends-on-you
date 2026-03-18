@@ -1,0 +1,30 @@
+# Build directories
+build/
+build_cov/
+bin/
+out/
+
+# X-Plane Plugin binaries
+*.xpl
+*.dll
+*.so
+*.dylib
+
+# Test executables
+run_tests
+run_tests_cov
+
+# Gcov / Coverage data
+*.gcda
+*.gcno
+*.gcov
+gcov_summary.txt
+
+# X-Plane SDK (headers and libraries are typically external)
+RadioPlugin/SDK/
+
+# IDE and OS specific files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

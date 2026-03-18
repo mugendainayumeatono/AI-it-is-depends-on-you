@@ -1,0 +1,15 @@
+# X-Plane 12 Radio Takeover Plugin Project Memory
+
+## Project Overview
+A C++ plugin for X-Plane 12 to intercept and takeover radio frequencies (COM1/COM2), providing custom voice capture (PTT) and audio playback (ATC voice synthesis) via the X-Plane 12 Audio API (XPLMSound).
+
+## Architecture Decisions
+- **Frequency Interception**: Uses X-Plane 12 8.33kHz DataRefs (`sim/cockpit2/radios/actuators/com1_frequency_hz_833`).
+- **Audio Output**: Uses `XPLMPlayPCMOnBus` for real-time PCM streaming into the simulator's radio bus.
+- **Audio Input**: Hooked into `sim/radios/com1_transmit` command to trigger custom microphone capture (integrated with FMOD Studio API).
+- **Testing Strategy**: Offline unit testing using a comprehensive Mock X-Plane SDK (`test/XPLMMock.h`).
+
+## Build & Test Tools
+- **Build System**: CMake for cross-platform support.
+- **Coverage**: Automated via `test/run_test_and_check.sh` using `gcov`. Reports are stored in `test/build_cov/`.
+- **Current Coverage**: ~90% across core modules.
