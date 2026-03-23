@@ -9,13 +9,6 @@
 #include <string>
 #include <cstring>
 
-#if IBM
-    #include <windows.h>
-    #define PLUGIN_API __declspec(dllexport)
-#else
-    #define PLUGIN_API
-#endif
-
 // --- Global DataRefs and Commands ---
 static XPLMDataRef g_com1_freq_ref = nullptr;
 static XPLMCommandRef g_ptt_cmd = nullptr;

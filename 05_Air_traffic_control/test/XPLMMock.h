@@ -7,17 +7,28 @@
 #include <cstdint>
 
 // --- Mocked X-Plane SDK Definitions ---
+#define PLUGIN_API 
 typedef void* XPLMDataRef;
 typedef void* XPLMCommandRef;
-typedef int   XPLMPluginID; // Added this
+typedef int   XPLMPluginID;
 
 enum XPLMCommandPhase {
     xplm_CommandBegin = 0,
     xplm_CommandEnd = 1
 };
 
+typedef enum FMOD_RESULT
+{
+    FMOD_OK,
+} FMOD_RESULT;
+
+typedef enum FMOD_SOUND_FORMAT
+{
+	FMOD_SOUND_FORMAT_PCM16 = 2
+} FMOD_SOUND_FORMAT;
+
 typedef int (*XPLMCommandHandler_f)(XPLMCommandRef inCommand, XPLMCommandPhase inPhase, void* inRefcon);
-typedef void (*XPLMPCMComplete_f)(void* inRefcon, int status);
+typedef void (*XPLMPCMComplete_f)(void* inRefcon, FMOD_RESULT status);
 
 enum XPLMAudioBus {
     xplm_AudioRadioCom1 = 0
@@ -62,10 +73,10 @@ inline XPLMCommandRef XPLMFindCommand(const char* name) {
     return nullptr;
 }
 
-inline void* XPLMPlayPCMOnBus(void* audioBuffer, uint32_t bufferSize, int format, int freq, int channels, int loop, XPLMAudioBus bus, XPLMPCMComplete_f callback, void* refcon) {
+inline void* XPLMPlayPCMOnBus(void* audioBuffer, uint32_t bufferSize, FMOD_SOUND_FORMAT format, int freq, int channels, int loop, XPLMAudioBus bus, XPLMPCMComplete_f callback, void* refcon) {
     MockXPLM::audioPlaying = true;
     MockXPLM::lastPlayedPcm.assign((int16_t*)audioBuffer, (int16_t*)audioBuffer + (bufferSize / sizeof(int16_t)));
-    if (callback) callback(refcon, 0); 
+    if (callback) callback(refcon, FMOD_OK); 
     return (void*)0x789;
 }
 

@@ -10,7 +10,7 @@ static std::vector<int16_t>* g_current_pcm_data = nullptr;
 
 // Callback signature for XPLMPlayPCMOnBus completion
 // XPLMPCMComplete_f takes (void* inRefcon, int status)
-static void MySoundCompleteCallback(void* inRefcon, int status) {
+static void MySoundCompleteCallback(void* inRefcon, FMOD_RESULT status) {
     g_playback_channel = nullptr;
     
     // Free the PCM data that was played
@@ -53,10 +53,6 @@ void PlayVoiceAudio(const std::vector<int16_t>& pcmData) {
     int sampleRate = 44100;
     int numChannels = 1;
     
-    // In FMOD, FMOD_SOUND_FORMAT_PCM16 is usually 2.
-    // XPLMPlayPCMOnBus uses the FMOD_SOUND_FORMAT enum.
-    int FMOD_SOUND_FORMAT_PCM16 = 2;
-
     g_playback_channel = XPLMPlayPCMOnBus(
         (void*)g_current_pcm_data->data(),
         (uint32_t)(g_current_pcm_data->size() * sizeof(int16_t)),
