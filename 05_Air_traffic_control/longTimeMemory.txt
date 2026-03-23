@@ -14,3 +14,4 @@ A C++ plugin for X-Plane 12 to intercept and takeover radio frequencies (COM1/CO
 - **Coverage**: Automated via `test/run_test_and_check.sh` using `gcov`. Reports are stored in `test/build_cov/`.
 - **Current Coverage**: ~90% across core modules.
 Fact: RadioPlugin.xpl is an X-Plane plugin (shared library) and cannot be executed directly in the development environment. It must be loaded by X-Plane 12 or verified via the mock test suite.
+Fact: If permissions are insufficient when executing commands, try using the 'sudo' prefix.
