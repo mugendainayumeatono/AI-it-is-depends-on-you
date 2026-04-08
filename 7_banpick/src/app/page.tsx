@@ -24,7 +24,7 @@ export default function Home() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="bg-red-50 text-red-600 p-6 rounded-lg shadow-sm border border-red-100">
           <p className="font-bold text-xl mb-2">Error Connecting to Database</p>
-          <p>Please check your DATABASE_URL environment variable.</p>
+          <p>Please check your POSTGRES_PRISMA_URL environment variable.</p>
         </div>
       </div>
     )
