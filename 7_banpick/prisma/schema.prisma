@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Member {
+  id        String   @id @default(cuid())
+  name      String
+  info      String?
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id])
+  isBanned  Boolean  @default(false)
+  pickedAt  DateTime?
+  order     Int      @default(0)
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  order       Int
+  members     Member[]
+  reserveTime Int      @default(30) // Total reserve time in seconds
+}
+
+model GameState {
+  id               String   @id @default("singleton")
+  currentTeamIndex Int      @default(0)
+  turnStartTime    DateTime @default(now())
+  status           String   @default("CONFIGURING") // CONFIGURING, PICKING, COMPLETED
+  turnDuration     Int      @default(30) // Seconds per turn
+  totalReserveTime Int      @default(120) // Initial reserve time for each team
+  teamCount        Int      @default(2)
+}
