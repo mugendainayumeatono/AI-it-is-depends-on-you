@@ -16,11 +16,7 @@ describe('API: /api/randomize', () => {
       { id: 'm1' }, { id: 'm2' }, { id: 'm3' }, { id: 'm4' }
     ])
 
-    const req = new Request('http://localhost/api/randomize', {
-      method: 'POST'
-    })
-
-    const response = await POST(req)
+    const response = await POST()
     const data = await response.json()
 
     expect(data.success).toBe(true)

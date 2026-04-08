@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Home from '@/app/page.tsx'
+import Home from '@/app/page'
 import { useGameState } from '@/hooks/useGameState'
 
 vi.mock('@/hooks/useGameState')
