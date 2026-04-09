@@ -28,7 +28,7 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
     setActiveId(event.active.id)
   }
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     setActiveId(null)
 
@@ -39,7 +39,7 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
       const pickedMember = members.find(m => m.id === memberId)
       if (!pickedMember) return
 
-      // Optimistic update
+      // Optimistic update payload
       const optimisticData = {
         gameState: {
           ...gameState,
@@ -50,16 +50,24 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
         teams: teams.map(t => t.id === teamId ? { ...t, members: [...t.members, pickedMember] } : t)
       }
 
+      // 1. Instant optimistic update without revalidation
       mutate(optimisticData, { revalidate: false })
 
-      try {
-        await fetch('/api/pick', {
-          method: 'POST',
-          body: JSON.stringify({ memberId, teamId }),
-        })
-      } finally {
-        mutate() // Revalidate with server truth
-      }
+      // 2. Fire-and-forget request to server
+      fetch('/api/pick', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId, teamId }),
+      }).then(async (res) => {
+        // 3. Rollback if the server rejected the pick (e.g., concurrency conflict P2025)
+        if (!res.ok) {
+          console.warn("Pick rejected by server (likely a concurrency conflict). Rolling back...")
+          await mutate() 
+        }
+      }).catch(err => {
+        console.error("Network error during pick. Rolling back...", err)
+        mutate() 
+      })
     }
   }
 
