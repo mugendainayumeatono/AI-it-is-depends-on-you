@@ -56,14 +56,28 @@ describe('Component: Timer', () => {
     expect(screen.getByText(/29/)).toBeDefined()
   })
 
-  it('should show 0s when all time is exhausted', () => {
-    // 50 seconds have passed (10s turn + 30s reserve + 10s extra)
+  it('should auto-pick when reserve time runs out', () => {
+    vi.useFakeTimers()
+    const mutate = vi.fn()
+    
+    // Setup state where we have exactly 1s of reserve time left
     const state = { 
       ...mockGameState, 
-      turnStartTime: new Date(now - 50000).toISOString() 
+      turnStartTime: new Date(now - 10000).toISOString() // Turn time is just over
     }
     
-    render(<Timer gameState={state} currentTeam={mockTeam} mutate={mutate} />)
-    expect(screen.getByText(/0/)).toBeDefined()
+    const team = { ...mockTeam, reserveTime: 1 } // Only 1 second of reserve
+    
+    render(<Timer gameState={state} currentTeam={team} mutate={mutate} />)
+    
+    // Advance timer by 2 seconds to exhaust the remaining 1s
+    vi.advanceTimersByTime(2000)
+    
+    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('AUTO_PICK')
+    }))
+    
+    vi.useRealTimers()
   })
 })
