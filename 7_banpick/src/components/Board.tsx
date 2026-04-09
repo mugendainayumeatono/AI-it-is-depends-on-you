@@ -66,6 +66,28 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
     mutate()
   }
 
+  const handleStart = async () => {
+    await fetch('/api/pick', {
+      method: 'POST',
+      body: JSON.stringify({ status: 'START' }),
+    })
+    mutate()
+  }
+
+  const handleReset = async () => {
+    if (!confirm('Reset game to configuration phase and unpick all members?')) return
+    await fetch('/api/config', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        teamCount: gameState.teamCount, 
+        turnDuration: gameState.turnDuration, 
+        totalReserveTime: gameState.totalReserveTime,
+        teamNames: teams.map(t => t.name)
+      }),
+    })
+    mutate()
+  }
+
   const activeMember = members.find(m => m.id === activeId)
 
   return (
@@ -89,6 +111,23 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
             >
               <Shuffle size={18} /> Random Teams
             </button>
+            {gameState.status === 'CONFIGURING' && (
+              <button 
+                onClick={handleStart}
+                disabled={members.length === 0 || teams.length === 0}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 transition font-medium shadow disabled:bg-gray-600 disabled:text-gray-400"
+              >
+                Start Picking
+              </button>
+            )}
+            {(gameState.status === 'PICKING' || gameState.status === 'COMPLETED') && (
+              <button 
+                onClick={handleReset}
+                className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow"
+              >
+                Reset Draft
+              </button>
+            )}
           </div>
           {gameState.status === 'PICKING' && currentTeam && (
             <Timer gameState={gameState} currentTeam={currentTeam} mutate={mutate} />
@@ -120,7 +159,7 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
             {gameState.status === 'CONFIGURING' && (
               <div className="text-center text-gray-400 py-10 flex flex-col items-center gap-4">
                 <p>Game is in configuration mode.</p>
-                <button onClick={() => setShowConfig(true)} className="px-4 py-2 bg-indigo-600 rounded text-white hover:bg-indigo-500">Go to Config</button>
+                <p className="text-sm">Click "Start Picking" to begin drafting.</p>
               </div>
             )}
           </div>

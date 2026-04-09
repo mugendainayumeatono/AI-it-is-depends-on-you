@@ -61,12 +61,7 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
     mutate()
   }
 
-  const handleStartGame = async () => {
-    await fetch('/api/pick', {
-      method: 'POST',
-      body: JSON.stringify({ status: 'START' }),
-    })
-    mutate()
+  const handleClose = () => {
     if (onClose) onClose()
   }
 
@@ -183,11 +178,10 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
 
       <div className="border-t border-gray-700 pt-8 flex justify-center">
         <button 
-          onClick={handleStartGame}
-          disabled={members.length === 0 || teams.length === 0}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-8 py-3 rounded-full font-bold text-lg hover:bg-indigo-500 transition disabled:bg-gray-600 disabled:text-gray-400"
+          onClick={handleClose}
+          className="flex items-center gap-2 bg-gray-600 text-white px-8 py-3 rounded-full font-bold text-lg hover:bg-gray-500 transition"
         >
-          <Play size={20} /> Start Picking Phase
+          Back to Board
         </button>
       </div>
     </div>

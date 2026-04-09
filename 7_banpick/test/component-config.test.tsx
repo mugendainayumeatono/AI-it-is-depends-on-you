@@ -32,14 +32,12 @@ describe('Component: Configuration', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ method: 'POST' }))
   })
 
-  it('should start game', async () => {
-    render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
-    const btn = screen.getByText(/Start Picking Phase/i)
+  it('should trigger onClose when Back to Board is clicked', async () => {
+    const onClose = vi.fn()
+    render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} onClose={onClose} />)
+    const btn = screen.getByText(/Back to Board/i)
     fireEvent.click(btn)
-    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({ 
-        method: 'POST',
-        body: JSON.stringify({ status: 'START' })
-    }))
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('should add a member with name, info, avatar, and background', async () => {
