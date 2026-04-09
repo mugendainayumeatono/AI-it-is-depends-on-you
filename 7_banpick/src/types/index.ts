@@ -2,6 +2,8 @@ export interface Member {
   id: string
   name: string
   info: string | null
+  avatar: string | null
+  background: string | null
   teamId: string | null
   isBanned: boolean
   pickedAt: string | null

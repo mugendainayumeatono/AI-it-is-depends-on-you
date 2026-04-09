@@ -9,14 +9,16 @@ datasource db {
 }
 
 model Member {
-  id        String   @id @default(cuid())
-  name      String
-  info      String?
-  teamId    String?
-  team      Team?    @relation(fields: [teamId], references: [id])
-  isBanned  Boolean  @default(false)
-  pickedAt  DateTime?
-  order     Int      @default(0)
+  id         String   @id @default(cuid())
+  name       String
+  info       String?
+  avatar     String?
+  background String?
+  teamId     String?
+  team       Team?    @relation(fields: [teamId], references: [id])
+  isBanned   Boolean  @default(false)
+  pickedAt   DateTime?
+  order      Int      @default(0)
 }
 
 model Team {

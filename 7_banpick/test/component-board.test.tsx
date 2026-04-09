@@ -19,22 +19,24 @@ describe('Component: Board', () => {
   })
 
   it('should render teams and available members', () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     expect(screen.getByText(/Available Members/i)).toBeDefined()
     expect(screen.getByText(/Player 1/i)).toBeDefined()
   })
 
   it('should call randomize API', async () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     const btn = screen.getByText(/Random Teams/i)
     fireEvent.click(btn)
     expect(global.fetch).toHaveBeenCalledWith('/api/randomize', expect.objectContaining({ method: 'POST' }))
   })
 
-  it('should call reset config API', async () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
-    const btn = screen.getByText(/Back to Config/i)
+  it('should call setShowConfig', async () => {
+    const setShowConfig = vi.fn()
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={setShowConfig} />)
+    
+    const btn = screen.getByText(/Configuration/i)
     fireEvent.click(btn)
-    expect(global.fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ method: 'POST' }))
+    expect(setShowConfig).toHaveBeenCalledWith(true)
   })
 })

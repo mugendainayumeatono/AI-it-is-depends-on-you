@@ -22,7 +22,7 @@ describe('Page: Home', () => {
     expect(screen.getByText(/Error Connecting to Database/i)).toBeDefined()
   })
 
-  it('should show configuration when status is CONFIGURING', () => {
+  it('should show configuration prompt when status is CONFIGURING', () => {
     ;(useGameState as any).mockReturnValue({
       isLoading: false,
       gameState: { status: 'CONFIGURING' },
@@ -31,7 +31,7 @@ describe('Page: Home', () => {
       mutate: vi.fn()
     })
     render(<Home />)
-    expect(screen.getByText(/Configuration/i)).toBeDefined()
+    expect(screen.getByText(/Game is in configuration mode/i)).toBeDefined()
   })
 
   it('should show board when status is PICKING', () => {

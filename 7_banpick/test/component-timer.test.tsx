@@ -51,7 +51,7 @@ describe('Component: Timer', () => {
     
     render(<Timer gameState={state} currentTeam={mockTeam} mutate={mutate} />)
     
-    expect(screen.getByText(/Bonus Time/i)).toBeDefined()
+    expect(screen.getByText(/Reserve Time/i)).toBeDefined()
     // 30s reserve - (11s - 10s) = 29s
     expect(screen.getByText(/29/)).toBeDefined()
   })

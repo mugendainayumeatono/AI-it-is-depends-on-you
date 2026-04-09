@@ -63,10 +63,17 @@ export default function Timer({ gameState, currentTeam, mutate }: Props) {
   }, [gameState, currentTeam, mutate])
 
   return (
-    <div className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors ${isReserve ? 'border-red-500 bg-red-50 text-red-600' : 'border-indigo-600 bg-indigo-50 text-indigo-700'}`}>
-      <p className="text-xs font-bold uppercase mb-1">{isReserve ? 'Bonus Time' : 'Turn Time'}</p>
+    <div className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors shadow-lg
+      ${!isReserve 
+        ? 'border-green-500 bg-green-900/30 text-green-400' 
+        : timeLeft < 30 
+          ? 'border-red-500 bg-red-900/30 text-red-400 animate-pulse' 
+          : 'border-blue-500 bg-blue-900/30 text-blue-400'
+      }`}
+    >
+      <p className="text-xs font-bold uppercase mb-1 tracking-wider">{isReserve ? 'Reserve Time' : 'Turn Time'}</p>
       <p className="text-6xl font-black">{timeLeft}s</p>
-      <p className="text-xs mt-2 font-medium">{currentTeam.name}'s Turn</p>
+      <p className="text-xs mt-2 font-medium opacity-80">{currentTeam.name}'s Turn</p>
     </div>
   )
 }

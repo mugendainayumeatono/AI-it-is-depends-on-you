@@ -6,16 +6,17 @@ import DroppableTeam from './DroppableTeam'
 import DraggableMember from './DraggableMember'
 import Timer from './Timer'
 import { useState } from 'react'
-import { Shuffle } from 'lucide-react'
+import { Shuffle, Settings } from 'lucide-react'
 
 interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
   mutate: (data?: any, opts?: any) => void
+  setShowConfig: (show: boolean) => void
 }
 
-export default function Board({ gameState, teams, members, mutate }: Props) {
+export default function Board({ gameState, teams, members, mutate, setShowConfig }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const currentTeam = teams[gameState.currentTeamIndex]
   const unpickedMembers = members.filter(m => !m.teamId && !m.isBanned)
@@ -28,7 +29,7 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
     const { active, over } = event
     setActiveId(null)
 
-    if (over && over.id === currentTeam.id) {
+    if (over && currentTeam && over.id === currentTeam.id) {
       const memberId = active.id as string
       const teamId = over.id as string
       
@@ -65,20 +66,6 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
     mutate()
   }
 
-  const handleReset = async () => {
-    if (!confirm('Reset game to configuration phase?')) return
-    await fetch('/api/config', {
-      method: 'POST',
-      body: JSON.stringify({ 
-        teamCount: gameState.teamCount, 
-        turnDuration: gameState.turnDuration, 
-        totalReserveTime: gameState.totalReserveTime,
-        teamNames: teams.map(t => t.name)
-      }),
-    })
-    mutate()
-  }
-
   const activeMember = members.find(m => m.id === activeId)
 
   return (
@@ -87,38 +74,38 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="min-h-screen bg-gray-100 p-8 flex flex-col gap-8">
-        <header className="flex justify-between items-center">
+      <div className="min-h-screen p-8 flex flex-col gap-8 text-gray-200">
+        <header className="flex justify-between items-center bg-gray-800/80 p-4 rounded-2xl backdrop-blur-md border border-gray-700 shadow-lg">
           <div className="flex gap-4">
             <button 
+              onClick={() => setShowConfig(true)}
+              className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600"
+            >
+              <Settings size={18} /> Configuration
+            </button>
+            <button 
               onClick={handleRandomize}
-              className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 transition font-bold shadow"
+              className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow"
             >
               <Shuffle size={18} /> Random Teams
             </button>
-            <button 
-              onClick={handleReset}
-              className="text-gray-500 hover:text-gray-700 font-medium"
-            >
-              Back to Config
-            </button>
           </div>
-          {gameState.status === 'PICKING' && (
+          {gameState.status === 'PICKING' && currentTeam && (
             <Timer gameState={gameState} currentTeam={currentTeam} mutate={mutate} />
           )}
           {gameState.status === 'COMPLETED' && (
-            <div className="bg-green-600 text-white px-8 py-4 rounded-xl shadow-lg animate-bounce">
-              <p className="text-2xl font-black uppercase">Draft Completed!</p>
+            <div className="text-gray-300 px-8 py-4 border-2 border-gray-600 rounded-xl shadow-lg">
+              <p className="text-2xl font-bold uppercase tracking-wider">Draft Completed</p>
             </div>
           )}
-          <div className="w-32" /> {/* Spacer */}
+          <div className="w-[300px]" /> {/* Spacer to balance flex-between if Timer is center */}
         </header>
 
         <div className="flex flex-col lg:flex-row gap-8 flex-1">
           {/* Unpicked Members Pool */}
-          <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl shadow-sm space-y-4">
-            <h3 className="text-xl font-bold text-gray-800 border-b pb-2">Available Members ({unpickedMembers.length})</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto max-h-[70vh]">
+          <div className="w-full lg:w-1/3 bg-gray-800/80 p-6 rounded-2xl shadow-xl border border-gray-700 space-y-4 backdrop-blur-sm">
+            <h3 className="text-xl font-bold text-gray-200 border-b border-gray-700 pb-2">Available Members ({unpickedMembers.length})</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar">
               {unpickedMembers.map(member => (
                 <DraggableMember 
                   key={member.id} 
@@ -128,7 +115,13 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
               ))}
             </div>
             {unpickedMembers.length === 0 && gameState.status === 'PICKING' && (
-              <p className="text-center text-gray-400 py-10">All members have been picked!</p>
+              <p className="text-center text-gray-500 py-10">All members have been picked!</p>
+            )}
+            {gameState.status === 'CONFIGURING' && (
+              <div className="text-center text-gray-400 py-10 flex flex-col items-center gap-4">
+                <p>Game is in configuration mode.</p>
+                <button onClick={() => setShowConfig(true)} className="px-4 py-2 bg-indigo-600 rounded text-white hover:bg-indigo-500">Go to Config</button>
+              </div>
             )}
           </div>
 
@@ -148,9 +141,8 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
 
       <DragOverlay>
         {activeMember ? (
-          <div className="p-4 rounded-lg border-2 bg-white border-blue-500 shadow-2xl scale-110 opacity-90 cursor-grabbing">
-            <p className="font-bold text-lg">{activeMember.name}</p>
-            <p className="text-sm opacity-70">{activeMember.info}</p>
+          <div className="rounded-lg shadow-2xl scale-110 opacity-90 cursor-grabbing relative overflow-hidden">
+             <DraggableMember member={activeMember} disabled={true} isOverlay={true} />
           </div>
         ) : null}
       </DragOverlay>

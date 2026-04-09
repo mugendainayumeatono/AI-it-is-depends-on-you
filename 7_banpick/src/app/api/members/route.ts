@@ -6,14 +6,14 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   try {
-    const { action, memberId, name, info } = await req.json()
+    const { action, memberId, name, info, avatar, background } = await req.json()
 
     if (action === 'ADD') {
-      await prisma.member.create({ data: { name, info: info || '' } })
+      await prisma.member.create({ data: { name, info: info || '', avatar, background } })
     } else if (action === 'DELETE') {
       await prisma.member.delete({ where: { id: memberId } })
     } else if (action === 'UPDATE') {
-      await prisma.member.update({ where: { id: memberId }, data: { name, info } })
+      await prisma.member.update({ where: { id: memberId }, data: { name, info, avatar, background } })
     }
 
     await triggerStateUpdate()
