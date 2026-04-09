@@ -12,7 +12,7 @@ interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
-  mutate: () => void
+  mutate: (data?: any, opts?: any) => void
 }
 
 export default function Board({ gameState, teams, members, mutate }: Props) {
@@ -29,15 +29,33 @@ export default function Board({ gameState, teams, members, mutate }: Props) {
     setActiveId(null)
 
     if (over && over.id === currentTeam.id) {
-      // Optimistic update
       const memberId = active.id as string
       const teamId = over.id as string
+      
+      const pickedMember = members.find(m => m.id === memberId)
+      if (!pickedMember) return
 
-      await fetch('/api/pick', {
-        method: 'POST',
-        body: JSON.stringify({ memberId, teamId }),
-      })
-      mutate()
+      // Optimistic update
+      const optimisticData = {
+        gameState: {
+          ...gameState,
+          currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
+          turnStartTime: new Date().toISOString(),
+        },
+        members: members.map(m => m.id === memberId ? { ...m, teamId } : m),
+        teams: teams.map(t => t.id === teamId ? { ...t, members: [...t.members, pickedMember] } : t)
+      }
+
+      mutate(optimisticData, { revalidate: false })
+
+      try {
+        await fetch('/api/pick', {
+          method: 'POST',
+          body: JSON.stringify({ memberId, teamId }),
+        })
+      } finally {
+        mutate() // Revalidate with server truth
+      }
     }
   }
 

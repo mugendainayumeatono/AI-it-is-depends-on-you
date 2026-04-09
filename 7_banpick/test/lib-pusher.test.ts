@@ -5,9 +5,17 @@ vi.mock('pusher', () => {
   return {
     default: class MockPusher {
       trigger = mockTrigger;
-      constructor(options: any) {
-        // Record constructor arguments if needed, but not strictly required
-      }
+      constructor(options: any) {}
+    }
+  }
+})
+
+vi.mock('@/lib/prisma', () => {
+  return {
+    default: {
+      gameState: { findUnique: vi.fn().mockResolvedValue({ id: 'singleton' }) },
+      team: { findMany: vi.fn().mockResolvedValue([]) },
+      member: { findMany: vi.fn().mockResolvedValue([]) }
     }
   }
 })

@@ -1,4 +1,5 @@
 import PusherServer from 'pusher'
+import prisma from '@/lib/prisma'
 
 const getPusherServer = () => {
   const appId = process.env.PUSHER_APP_ID;
@@ -26,8 +27,15 @@ export const triggerStateUpdate = async () => {
   if (method !== 'PUSHER' || !pusherServer) return;
 
   try {
+    const [gameState, teams, members] = await Promise.all([
+      prisma.gameState.findUnique({ where: { id: 'singleton' } }),
+      prisma.team.findMany({ include: { members: true }, orderBy: { order: 'asc' } }),
+      prisma.member.findMany({ orderBy: { name: 'asc' } }),
+    ])
+
     await pusherServer.trigger('banpick-channel', 'state-update', {
       timestamp: Date.now(),
+      state: { gameState, teams, members }
     });
   } catch (error) {
     console.error('Pusher trigger error:', error);

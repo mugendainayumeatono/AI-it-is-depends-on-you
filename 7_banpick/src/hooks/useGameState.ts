@@ -27,8 +27,12 @@ export function useGameState() {
     })
 
     const channel = pusher.subscribe('banpick-channel')
-    channel.bind('state-update', () => {
-      mutate()
+    channel.bind('state-update', (payload: any) => {
+      if (payload && payload.state) {
+        mutate(payload.state, { revalidate: false })
+      } else {
+        mutate()
+      }
     })
 
     return () => {

@@ -8,7 +8,7 @@ interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
-  mutate: () => void
+  mutate: (data?: any, opts?: any) => void
 }
 
 export default function Configuration({ gameState, teams, members, mutate }: Props) {

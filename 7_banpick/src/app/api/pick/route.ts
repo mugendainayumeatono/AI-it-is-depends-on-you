@@ -48,23 +48,34 @@ export async function POST(req: Request) {
     // Update team reserve time
     const newReserveTime = Math.max(0, currentTeam.reserveTime - extraTime)
 
-    await prisma.$transaction([
-      prisma.member.update({
-        where: { id: finalMemberId },
-        data: { teamId: currentTeam.id, pickedAt: now },
-      }),
-      prisma.team.update({
-        where: { id: currentTeam.id },
-        data: { reserveTime: newReserveTime },
-      }),
-      prisma.gameState.update({
-        where: { id: 'singleton' },
-        data: {
-          currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
-          turnStartTime: now,
-        },
-      }),
-    ])
+    try {
+      await prisma.$transaction([
+        prisma.member.update({
+          where: { id: finalMemberId },
+          data: { teamId: currentTeam.id, pickedAt: now },
+        }),
+        prisma.team.update({
+          where: { id: currentTeam.id },
+          data: { reserveTime: newReserveTime },
+        }),
+        prisma.gameState.update({
+          where: { 
+            id: 'singleton',
+            turnStartTime: gameState.turnStartTime // Optimistic concurrency control: ensure turn hasn't changed
+          },
+          data: {
+            currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
+            turnStartTime: now,
+          },
+        }),
+      ])
+    } catch (e: any) {
+      // P2025 means the record was not found (meaning turnStartTime changed)
+      if (e.code === 'P2025') {
+        return NextResponse.json({ error: 'Turn has already been taken' }, { status: 409 })
+      }
+      throw e;
+    }
 
     // Check if all members picked
     const remainingMembers = await prisma.member.count({ where: { teamId: null, isBanned: false } })

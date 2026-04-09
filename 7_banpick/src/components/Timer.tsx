@@ -6,7 +6,7 @@ import { GameState, Team } from '@/types'
 interface Props {
   gameState: GameState
   currentTeam: Team
-  mutate: () => void
+  mutate: (data?: any, opts?: any) => void
 }
 
 export default function Timer({ gameState, currentTeam, mutate }: Props) {
