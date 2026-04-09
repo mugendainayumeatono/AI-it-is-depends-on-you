@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { triggerStateUpdate } from '@/lib/pusher'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +29,8 @@ export async function POST() {
       where: { id: 'singleton' },
       data: { status: 'COMPLETED' },
     })
+
+    await triggerStateUpdate()
 
     return NextResponse.json({ success: true })
   } catch (error) {

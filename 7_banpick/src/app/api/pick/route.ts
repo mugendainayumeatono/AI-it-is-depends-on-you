@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { triggerStateUpdate } from '@/lib/pusher'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +17,7 @@ export async function POST(req: Request) {
           currentTeamIndex: 0,
         },
       })
+      await triggerStateUpdate()
       return NextResponse.json({ success: true })
     }
 
@@ -72,6 +74,8 @@ export async function POST(req: Request) {
         data: { status: 'COMPLETED' },
       })
     }
+
+    await triggerStateUpdate()
 
     return NextResponse.json({ success: true })
   } catch (error) {

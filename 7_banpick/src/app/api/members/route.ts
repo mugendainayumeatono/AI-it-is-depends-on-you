@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { triggerStateUpdate } from '@/lib/pusher'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +15,8 @@ export async function POST(req: Request) {
     } else if (action === 'UPDATE') {
       await prisma.member.update({ where: { id: memberId }, data: { name, info } })
     }
+
+    await triggerStateUpdate()
 
     return NextResponse.json({ success: true })
   } catch (error) {
