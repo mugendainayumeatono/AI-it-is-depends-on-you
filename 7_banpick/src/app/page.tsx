@@ -36,9 +36,9 @@ export default function Home() {
     <div className="relative min-h-screen bg-gray-900 text-gray-100 overflow-hidden">
       {/* Follow Mouse Effect Background */}
       <div 
-        className="pointer-events-none absolute inset-0 z-0 opacity-30"
+        className="pointer-events-none absolute inset-0 z-0 transition-opacity duration-300 opacity-60"
         style={{
-          background: 'radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(79, 70, 229, 0.15) 0%, transparent 50%)'
+          background: 'radial-gradient(1200px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(99, 102, 241, 0.4) 0%, rgba(168, 85, 247, 0.15) 30%, transparent 80%)'
         }}
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect()

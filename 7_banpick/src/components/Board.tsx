@@ -21,6 +21,9 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
   const currentTeam = teams[gameState.currentTeamIndex]
   const unpickedMembers = members.filter(m => !m.teamId && !m.isBanned)
 
+  const [isRandomizing, setIsRandomizing] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+
   const handleDragStart = (event: any) => {
     setActiveId(event.active.id)
   }
@@ -62,8 +65,13 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
 
   const handleRandomize = async () => {
     if (!confirm('Randomly assign all remaining members?')) return
-    await fetch('/api/randomize', { method: 'POST' })
-    mutate()
+    setIsRandomizing(true)
+    try {
+      await fetch('/api/randomize', { method: 'POST' })
+      mutate()
+    } finally {
+      setIsRandomizing(false)
+    }
   }
 
   const handleStart = async () => {
@@ -76,16 +84,21 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
 
   const handleReset = async () => {
     if (!confirm('Reset game to configuration phase and unpick all members?')) return
-    await fetch('/api/config', {
-      method: 'POST',
-      body: JSON.stringify({ 
-        teamCount: gameState.teamCount, 
-        turnDuration: gameState.turnDuration, 
-        totalReserveTime: gameState.totalReserveTime,
-        teamNames: teams.map(t => t.name)
-      }),
-    })
-    mutate()
+    setIsResetting(true)
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          teamCount: gameState.teamCount, 
+          turnDuration: gameState.turnDuration, 
+          totalReserveTime: gameState.totalReserveTime,
+          teamNames: teams.map(t => t.name)
+        }),
+      })
+      mutate()
+    } finally {
+      setIsResetting(false)
+    }
   }
 
   const activeMember = members.find(m => m.id === activeId)
@@ -98,35 +111,45 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
     >
       <div className="min-h-screen p-8 flex flex-col gap-8 text-gray-200">
         <header className="flex justify-between items-center bg-gray-800/80 p-4 rounded-2xl backdrop-blur-md border border-gray-700 shadow-lg">
-          <div className="flex gap-4">
-            <button 
-              onClick={() => setShowConfig(true)}
-              className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600"
-            >
-              <Settings size={18} /> Configuration
-            </button>
-            <button 
-              onClick={handleRandomize}
-              className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow"
-            >
-              <Shuffle size={18} /> Random Teams
-            </button>
-            {gameState.status === 'CONFIGURING' && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-4">
               <button 
-                onClick={handleStart}
-                disabled={members.length === 0 || teams.length === 0}
-                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 transition font-medium shadow disabled:bg-gray-600 disabled:text-gray-400"
+                onClick={() => setShowConfig(true)}
+                disabled={isRandomizing || isResetting}
+                className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Start Picking
+                <Settings size={18} /> Configuration
               </button>
-            )}
-            {(gameState.status === 'PICKING' || gameState.status === 'COMPLETED') && (
               <button 
-                onClick={handleReset}
-                className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow"
+                onClick={handleRandomize}
+                disabled={isRandomizing || isResetting}
+                className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Reset Draft
+                <Shuffle size={18} /> Random Teams
               </button>
+              {gameState.status === 'CONFIGURING' && (
+                <button 
+                  onClick={handleStart}
+                  disabled={members.length === 0 || teams.length === 0 || isRandomizing || isResetting}
+                  className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 transition font-medium shadow disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                  Start Picking
+                </button>
+              )}
+              {(gameState.status === 'PICKING' || gameState.status === 'COMPLETED') && (
+                <button 
+                  onClick={handleReset}
+                  disabled={isRandomizing || isResetting}
+                  className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Reset Draft
+                </button>
+              )}
+            </div>
+            {(isRandomizing || isResetting) && (
+              <p className="text-sm text-yellow-400 animate-pulse font-medium">
+                {isRandomizing ? 'Randomizing teams, please wait...' : 'Resetting draft, please wait...'}
+              </p>
             )}
           </div>
           {gameState.status === 'PICKING' && currentTeam && (

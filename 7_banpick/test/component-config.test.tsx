@@ -11,6 +11,18 @@ class MockFileReader {
   }
 }
 
+// Mock the global Image class to immediately fire onload
+class MockImage {
+  onload: (() => void) | null = null
+  width = 500
+  height = 500
+  set src(val: string) {
+    setTimeout(() => {
+      if (this.onload) this.onload()
+    }, 0)
+  }
+}
+
 describe('Component: Configuration', () => {
   const mockState = { teamCount: 2, turnDuration: 30, totalReserveTime: 120, status: 'CONFIGURING' }
   const mockTeams = [{ name: 'T1' }, { name: 'T2' }]
@@ -20,9 +32,17 @@ describe('Component: Configuration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
-      json: () => Promise.resolve({ success: true })
+      json: () => Promise.resolve({ success: true }),
+      ok: true
     }))
     global.FileReader = MockFileReader as any
+    global.Image = MockImage as any
+    
+    // Mock canvas context
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+      drawImage: vi.fn(),
+    }) as any
+    HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue('data:image/jpeg;base64,mocked-compressed')
   })
 
   it('should save settings', async () => {
@@ -63,8 +83,14 @@ describe('Component: Configuration', () => {
     fireEvent.change(avatarInput, { target: { files: [avatarFile] } })
     fireEvent.change(backgroundInput, { target: { files: [backgroundFile] } })
 
+    // Wait for the base64 conversion and state update to finish
+    await waitFor(() => {
+      const images = container.querySelectorAll('img[src="data:image/jpeg;base64,mocked-compressed"]')
+      expect(images.length).toBe(2)
+    })
+
     // Click Add Member
-    const addBtn = screen.getByText(/Add Member/i)
+    const addBtn = screen.getByText('Add')
     fireEvent.click(addBtn)
 
     await waitFor(() => {
@@ -72,10 +98,11 @@ describe('Component: Configuration', () => {
         method: 'POST',
         body: JSON.stringify({ 
           action: 'ADD', 
+          memberId: null,
           name: 'New Player', 
           info: 'Plays well\nVery aggressive',
-          avatar: 'data:image/png;base64,mocked-avatar.png',
-          background: 'data:image/png;base64,mocked-bg.png'
+          avatar: 'data:image/jpeg;base64,mocked-compressed',
+          background: 'data:image/jpeg;base64,mocked-compressed'
         })
       }))
     })
@@ -91,7 +118,9 @@ describe('Component: Configuration', () => {
 
   it('should call delete member API', async () => {
     render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
-    const delBtn = screen.getByRole('button', { name: '' }) // The trash icon button
+    const buttons = screen.getAllByRole('button')
+    // Find the button with the trash icon inside
+    const delBtn = buttons.find(b => b.innerHTML.includes('lucide-trash')) || buttons[buttons.length - 2]
     fireEvent.click(delBtn)
     expect(global.fetch).toHaveBeenCalledWith('/api/members', expect.objectContaining({
       body: JSON.stringify({ action: 'DELETE', memberId: 'm1' })

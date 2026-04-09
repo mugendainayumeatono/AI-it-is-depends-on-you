@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Member, Team, GameState } from '@/types'
-import { Plus, Trash2, Save, Play, Upload } from 'lucide-react'
+import { Plus, Trash2, Save, Play, Upload, Pencil, X } from 'lucide-react'
 
 interface Props {
   gameState: GameState
@@ -21,13 +21,43 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
   const [newMemberInfo, setNewMemberInfo] = useState('')
   const [newMemberAvatar, setNewMemberAvatar] = useState<string | null>(null)
   const [newMemberBackground, setNewMemberBackground] = useState<string | null>(null)
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+
+  const [isAdding, setIsAdding] = useState(false)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0]
     if (!file) return
+
     const reader = new FileReader()
     reader.onload = (event) => {
-      setter(event.target?.result as string)
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX_DIMENSION = 400
+        let width = img.width
+        let height = img.height
+
+        if (width > height && width > MAX_DIMENSION) {
+          height *= MAX_DIMENSION / width
+          width = MAX_DIMENSION
+        } else if (height > MAX_DIMENSION) {
+          width *= MAX_DIMENSION / height
+          height = MAX_DIMENSION
+        }
+
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8)
+          setter(compressedBase64)
+        } else {
+          setter(event.target?.result as string)
+        }
+      }
+      img.src = event.target?.result as string
     }
     reader.readAsDataURL(file)
   }
@@ -40,20 +70,61 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
     mutate()
   }
 
-  const handleAddMember = async () => {
-    if (!newMemberName) return
-    await fetch('/api/members', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'ADD', name: newMemberName, info: newMemberInfo, avatar: newMemberAvatar, background: newMemberBackground }),
-    })
+  const handleSubmitMember = async () => {
+    if (!newMemberName) {
+      alert("Please enter a name for the member.")
+      return
+    }
+    
+    setIsAdding(true)
+    try {
+      const payload = {
+        action: editingMemberId ? 'UPDATE' : 'ADD',
+        memberId: editingMemberId,
+        name: newMemberName,
+        info: newMemberInfo,
+        avatar: newMemberAvatar,
+        background: newMemberBackground
+      }
+      
+      const res = await fetch('/api/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Failed to save member')
+      }
+
+      cancelEdit()
+      mutate()
+    } catch (e: any) {
+      alert(e.message || "An error occurred while saving the member.")
+    } finally {
+      setIsAdding(false)
+    }
+  }
+
+  const handleEditClick = (m: Member) => {
+    setEditingMemberId(m.id)
+    setNewMemberName(m.name)
+    setNewMemberInfo(m.info || '')
+    setNewMemberAvatar(m.avatar)
+    setNewMemberBackground(m.background)
+  }
+
+  const cancelEdit = () => {
+    setEditingMemberId(null)
     setNewMemberName('')
     setNewMemberInfo('')
     setNewMemberAvatar(null)
     setNewMemberBackground(null)
-    mutate()
   }
 
   const handleDeleteMember = async (id: string) => {
+    if (editingMemberId === id) cancelEdit()
     await fetch('/api/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'DELETE', memberId: id }),
@@ -127,7 +198,7 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
 
       <section className="space-y-4 border-t border-gray-700 pt-6">
         <h2 className="text-xl font-semibold text-gray-300">Members ({members.length})</h2>
-        <div className="flex flex-wrap gap-4 items-start bg-gray-900/50 border border-gray-700 p-4 rounded">
+        <div className={`flex flex-wrap gap-4 items-start bg-gray-900/50 border ${editingMemberId ? 'border-indigo-500 shadow-[0_0_10px_rgba(79,70,229,0.2)]' : 'border-gray-700'} p-4 rounded transition-all`}>
           <div className="flex flex-col">
             <label className="text-sm text-gray-400 mb-1">Name</label>
             <input type="text" value={newMemberName} onChange={e => setNewMemberName(e.target.value)} className="border border-gray-600 bg-gray-700 rounded p-2 w-48 text-white" placeholder="Name" />
@@ -148,19 +219,32 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
                 <input type="file" accept="image/*" className="hidden" onChange={e => handleFileChange(e, setNewMemberBackground)} />
               </label>
             </div>
-            <button 
-              onClick={handleAddMember}
-              className="flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
-            >
-              <Plus size={18} /> Add Member
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleSubmitMember}
+                disabled={isAdding}
+                className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isAdding ? <span className="animate-spin border-2 border-white border-t-transparent rounded-full w-4 h-4 inline-block"></span> : (editingMemberId ? <Save size={18} /> : <Plus size={18} />)}
+                {isAdding ? 'Saving...' : (editingMemberId ? 'Update' : 'Add')}
+              </button>
+              {editingMemberId && (
+                <button 
+                  onClick={cancelEdit}
+                  className="flex items-center justify-center gap-1 bg-gray-600 text-white px-3 py-2 rounded hover:bg-gray-500 transition"
+                  title="Cancel Edit"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {members.map(m => (
-            <div key={m.id} className="flex justify-between items-center p-3 bg-gray-700 border border-gray-600 rounded hover:border-gray-500 transition relative overflow-hidden">
-              {m.background && <img src={m.background} className="absolute inset-0 w-full h-full object-cover opacity-20" />}
+            <div key={m.id} className="flex justify-between items-center p-3 bg-gray-700 border border-gray-600 rounded hover:border-gray-500 transition relative overflow-hidden group">
+              {m.background && <img src={m.background} className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
               <div className="flex items-center gap-3 relative z-10">
                 {m.avatar && <img src={m.avatar} className="w-10 h-10 rounded-full object-cover border border-gray-500" />}
                 <div>
@@ -168,9 +252,14 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
                   <p className="text-xs text-gray-400 whitespace-pre-wrap">{m.info}</p>
                 </div>
               </div>
-              <button onClick={() => handleDeleteMember(m.id)} className="text-red-400 hover:text-red-300 relative z-10">
-                <Trash2 size={16} />
-              </button>
+              <div className="relative z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => handleEditClick(m)} className="text-blue-400 hover:text-blue-300 bg-gray-800 p-1.5 rounded-md">
+                  <Pencil size={16} />
+                </button>
+                <button onClick={() => handleDeleteMember(m.id)} className="text-red-400 hover:text-red-300 bg-gray-800 p-1.5 rounded-md">
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
