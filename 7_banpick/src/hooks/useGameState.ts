@@ -1,14 +1,22 @@
 import useSWR from 'swr'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Pusher from 'pusher-js'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 export function useGameState() {
   const syncMethod = process.env.NEXT_PUBLIC_SYNC_METHOD || 'POLLING'
+  const [serverOffset, setServerOffset] = useState(0)
   
   const { data, error, mutate } = useSWR('/api/state', fetcher, {
     refreshInterval: syncMethod === 'PUSHER' ? 0 : 1000,
+    onSuccess: (data) => {
+      if (data.serverTime) {
+        const serverDate = new Date(data.serverTime).getTime()
+        const localDate = Date.now()
+        setServerOffset(serverDate - localDate)
+      }
+    }
   })
 
   useEffect(() => {
@@ -45,6 +53,7 @@ export function useGameState() {
     gameState: data?.gameState,
     teams: data?.teams || [],
     members: data?.members || [],
+    serverOffset,
     isLoading: !error && !data,
     isError: error,
     mutate,

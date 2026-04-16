@@ -7,7 +7,7 @@ import { Loader2, Settings } from 'lucide-react'
 import { useState } from 'react'
 
 export default function Home() {
-  const { gameState, teams, members, isLoading, isError, mutate } = useGameState()
+  const { gameState, teams, members, serverOffset, isLoading, isError, mutate } = useGameState()
   const [showConfig, setShowConfig] = useState(false)
 
   if (isLoading) {
@@ -55,7 +55,7 @@ export default function Home() {
           parent.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`)
         }
       }}>
-        <Board gameState={gameState} teams={teams} members={members} mutate={mutate} setShowConfig={setShowConfig} />
+        <Board gameState={gameState} teams={teams} members={members} serverOffset={serverOffset} mutate={mutate} setShowConfig={setShowConfig} />
       </div>
 
       {showConfig && (

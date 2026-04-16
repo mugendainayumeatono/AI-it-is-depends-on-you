@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Timer from '@/components/Timer'
 import { GameState, Team } from '@/types'
@@ -27,19 +27,29 @@ describe('Component: Timer', () => {
   const mutate = vi.fn()
 
   beforeEach(() => {
-    vi.useRealTimers() // Use real timers but control the 'now' via system time if needed, 
-    // but better yet, just control the input props.
+    vi.useFakeTimers()
     vi.setSystemTime(new Date(now))
     global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
+      ok: true,
       json: () => Promise.resolve({ success: true })
     }))
   })
 
   it('should display turn time initially', () => {
-    render(<Timer gameState={mockGameState} currentTeam={mockTeam} mutate={mutate} />)
+    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={0} mutate={mutate} />)
     expect(screen.getByText(/Turn Time/i)).toBeDefined()
     // 10s turn duration, 0s elapsed
-    expect(screen.getByText(/10/)).toBeDefined()
+    expect(screen.getByText(/10s/)).toBeDefined()
+  })
+
+  it('should account for serverOffset when calculating time', () => {
+    // Client is 5 seconds behind server (serverOffset = 5000)
+    // Server says turn started at 'now', client thinks it's 'now'.
+    // With offset, client thinks it's 'now + 5s', so 5s have "passed" according to server.
+    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={5000} mutate={mutate} />)
+    
+    // 10s turn - 5s elapsed = 5s
+    expect(screen.getByText(/5s/)).toBeDefined()
   })
 
   it('should switch to bonus time when turn time is exceeded', () => {
@@ -49,35 +59,53 @@ describe('Component: Timer', () => {
       turnStartTime: new Date(now - 11000).toISOString() 
     }
     
-    render(<Timer gameState={state} currentTeam={mockTeam} mutate={mutate} />)
+    render(<Timer gameState={state} currentTeam={mockTeam} serverOffset={0} mutate={mutate} />)
     
     expect(screen.getByText(/Reserve Time/i)).toBeDefined()
     // 30s reserve - (11s - 10s) = 29s
-    expect(screen.getByText(/29/)).toBeDefined()
+    expect(screen.getByText(/29s/)).toBeDefined()
   })
 
-  it('should auto-pick when reserve time runs out', () => {
-    vi.useFakeTimers()
+  it('should auto-pick when reserve time runs out', async () => {
     const mutate = vi.fn()
     
-    // Setup state where we have exactly 1s of reserve time left
+    // 10s turn duration, turn started 10s ago, reserve time 1s.
+    // Total time allowed is 11s.
     const state = { 
       ...mockGameState, 
-      turnStartTime: new Date(now - 10000).toISOString() // Turn time is just over
+      turnStartTime: new Date(now - 10000).toISOString() 
     }
+    const team = { ...mockTeam, reserveTime: 1 }
     
-    const team = { ...mockTeam, reserveTime: 1 } // Only 1 second of reserve
+    render(<Timer gameState={state} currentTeam={team} serverOffset={0} mutate={mutate} />)
     
-    render(<Timer gameState={state} currentTeam={team} mutate={mutate} />)
-    
-    // Advance timer by 2 seconds to exhaust the remaining 1s
-    vi.advanceTimersByTime(2000)
+    // Advance time to 1.1s later (total 11.1s since start)
+    await act(async () => {
+      vi.advanceTimersByTime(1100)
+    })
     
     expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
       method: 'POST',
       body: expect.stringContaining('AUTO_PICK')
     }))
+  })
+
+  it('should not call auto-pick multiple times due to ref locking', async () => {
+    const state = { 
+      ...mockGameState, 
+      turnStartTime: new Date(now - 11000).toISOString() 
+    }
+    const team = { ...mockTeam, reserveTime: 0 } // Already expired
     
-    vi.useRealTimers()
+    render(<Timer gameState={state} currentTeam={team} serverOffset={0} mutate={mutate} />)
+    
+    await act(async () => {
+      vi.advanceTimersByTime(100)
+      vi.advanceTimersByTime(100)
+      vi.advanceTimersByTime(100)
+    })
+    
+    // Only called once because of isAutoPicking.current = true
+    expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 })

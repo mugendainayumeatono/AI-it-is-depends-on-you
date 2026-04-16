@@ -19,7 +19,12 @@ export async function GET() {
       return NextResponse.json({ gameState: newState, teams: [], members: [] })
     }
 
-    return NextResponse.json({ gameState, teams, members })
+    return NextResponse.json({ 
+      gameState, 
+      teams, 
+      members, 
+      serverTime: new Date().toISOString() 
+    })
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: 'Failed to fetch state' }, { status: 500 })

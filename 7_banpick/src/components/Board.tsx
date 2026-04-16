@@ -12,11 +12,12 @@ interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
+  serverOffset: number
   mutate: (data?: any, opts?: any) => void
   setShowConfig: (show: boolean) => void
 }
 
-export default function Board({ gameState, teams, members, mutate, setShowConfig }: Props) {
+export default function Board({ gameState, teams, members, serverOffset, mutate, setShowConfig }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const currentTeam = teams[gameState.currentTeamIndex]
   const unpickedMembers = members.filter(m => !m.teamId && !m.isBanned)
@@ -161,7 +162,7 @@ export default function Board({ gameState, teams, members, mutate, setShowConfig
             )}
           </div>
           {gameState.status === 'PICKING' && currentTeam && (
-            <Timer gameState={gameState} currentTeam={currentTeam} mutate={mutate} />
+            <Timer gameState={gameState} currentTeam={currentTeam} serverOffset={serverOffset} mutate={mutate} />
           )}
           {gameState.status === 'COMPLETED' && (
             <div className="text-gray-300 px-8 py-4 border-2 border-gray-600 rounded-xl shadow-lg">

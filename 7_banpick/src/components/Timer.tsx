@@ -1,17 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { GameState, Team } from '@/types'
 
 interface Props {
   gameState: GameState
   currentTeam: Team
+  serverOffset: number
   mutate: (data?: any, opts?: any) => void
 }
 
-export default function Timer({ gameState, currentTeam, mutate }: Props) {
+export default function Timer({ gameState, currentTeam, serverOffset, mutate }: Props) {
+  // Use a ref to track if an auto-pick is already in progress to avoid multiple calls
+  const isAutoPicking = useRef(false)
+
+  const getSyncedNow = () => Date.now() + serverOffset
+
   const calculateInitialTime = () => {
-    const now = new Date().getTime()
+    const now = getSyncedNow()
     const startTime = new Date(gameState.turnStartTime).getTime()
     const elapsed = Math.floor((now - startTime) / 1000)
     
@@ -24,15 +30,20 @@ export default function Timer({ gameState, currentTeam, mutate }: Props) {
 
   const [timeLeft, setTimeLeft] = useState(calculateInitialTime)
   const [isReserve, setIsReserve] = useState(() => {
-    const now = new Date().getTime()
+    const now = getSyncedNow()
     const startTime = new Date(gameState.turnStartTime).getTime()
     const elapsed = Math.floor((now - startTime) / 1000)
     return elapsed >= gameState.turnDuration
   })
 
   useEffect(() => {
+    // Reset auto-picking flag whenever turn changes
+    isAutoPicking.current = false
+  }, [gameState.turnStartTime])
+
+  useEffect(() => {
     const interval = setInterval(() => {
-      const now = new Date().getTime()
+      const now = getSyncedNow()
       const startTime = new Date(gameState.turnStartTime).getTime()
       const elapsed = Math.floor((now - startTime) / 1000)
       
@@ -47,20 +58,28 @@ export default function Timer({ gameState, currentTeam, mutate }: Props) {
         if (remainingReserve <= 0) {
           setTimeLeft(0)
           setIsReserve(true)
+          
           // Trigger auto pick if we haven't already
-          fetch('/api/pick', {
-            method: 'POST',
-            body: JSON.stringify({ action: 'AUTO_PICK' }),
-          }).then(() => mutate())
+          if (!isAutoPicking.current) {
+            isAutoPicking.current = true
+            fetch('/api/pick', {
+              method: 'POST',
+              body: JSON.stringify({ action: 'AUTO_PICK' }),
+            }).then(() => {
+              mutate()
+            }).catch(() => {
+              isAutoPicking.current = false
+            })
+          }
         } else {
           setTimeLeft(remainingReserve)
           setIsReserve(true)
         }
       }
-    }, 1000)
+    }, 100) // Run more frequently for smoother UI
 
     return () => clearInterval(interval)
-  }, [gameState, currentTeam, mutate])
+  }, [gameState, currentTeam, mutate, serverOffset])
 
   return (
     <div className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors shadow-lg

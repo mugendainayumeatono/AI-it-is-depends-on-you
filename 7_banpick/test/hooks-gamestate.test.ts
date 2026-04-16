@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useGameState } from '@/hooks/useGameState'
 import useSWR from 'swr'
@@ -55,6 +55,33 @@ describe('Hook: useGameState', () => {
     
     expect(result.current.gameState.status).toBe('CONFIGURING')
     expect(result.current.isLoading).toBe(false)
+  })
+
+  it('should handle serverOffset calculation', async () => {
+    const serverTime = new Date(Date.now() + 5000).toISOString()
+    let onSuccessCallback: any;
+
+    ;(useSWR as any).mockImplementation((url: string, fetcher: any, options: any) => {
+      onSuccessCallback = options.onSuccess;
+      return {
+        data: { gameState: {}, teams: [], members: [], serverTime },
+        error: undefined,
+        mutate: vi.fn()
+      }
+    })
+
+    const { result } = renderHook(() => useGameState())
+    
+    // Manually trigger onSuccess if we captured it
+    if (onSuccessCallback) {
+      await act(async () => {
+        onSuccessCallback({ serverTime })
+      })
+    }
+
+    // serverOffset should be around 5000ms
+    expect(result.current.serverOffset).toBeGreaterThan(4000)
+    expect(result.current.serverOffset).toBeLessThan(6000)
   })
 
   it('should return error when fetch fails', async () => {

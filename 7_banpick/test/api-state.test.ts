@@ -18,6 +18,8 @@ describe('API: /api/state', () => {
     expect(data.gameState.status).toBe('CONFIGURING')
     expect(data.teams).toHaveLength(1)
     expect(data.members).toHaveLength(1)
+    expect(data.serverTime).toBeDefined()
+    expect(new Date(data.serverTime).getTime()).toBeGreaterThan(0)
   })
 
   it('should initialize state if it does not exist', async () => {
