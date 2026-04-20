@@ -65,6 +65,9 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
   const handleSaveConfig = async () => {
     await fetch('/api/config', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ teamCount, turnDuration, totalReserveTime, teamNames }),
     })
     mutate()
@@ -127,6 +130,7 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
     if (editingMemberId === id) cancelEdit()
     await fetch('/api/members', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'DELETE', memberId: id }),
     })
     mutate()

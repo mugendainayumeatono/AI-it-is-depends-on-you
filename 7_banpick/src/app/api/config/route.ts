@@ -6,7 +6,25 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   try {
-    const { teamCount, turnDuration, totalReserveTime, teamNames } = await req.json()
+    const body = await req.json()
+
+    const teamCount = parseInt(body.teamCount) || 2
+    const turnDuration = parseInt(body.turnDuration) || 30
+    const totalReserveTime = parseInt(body.totalReserveTime) || 120
+    const teamNames = Array.isArray(body.teamNames) ? body.teamNames : []
+
+    const teamCreations = []
+    for (let i = 0; i < teamCount; i++) {
+      teamCreations.push(
+        prisma.team.create({
+          data: {
+            name: teamNames[i] || `Team ${i + 1}`,
+            order: i,
+            reserveTime: totalReserveTime,
+          },
+        })
+      )
+    }
 
     // Reset everything
     await prisma.$transaction([
@@ -29,18 +47,8 @@ export async function POST(req: Request) {
           currentTeamIndex: 0,
         },
       }),
+      ...teamCreations
     ])
-
-    // Create new teams
-    for (let i = 0; i < teamCount; i++) {
-      await prisma.team.create({
-        data: {
-          name: teamNames[i] || `Team ${i + 1}`,
-          order: i,
-          reserveTime: totalReserveTime,
-        },
-      })
-    }
 
     await triggerStateUpdate()
 

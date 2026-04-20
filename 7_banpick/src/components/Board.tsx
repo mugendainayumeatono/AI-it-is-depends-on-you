@@ -86,6 +86,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
   const handleStart = async () => {
     await fetch('/api/pick', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'START' }),
     })
     mutate()
@@ -97,6 +98,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
     try {
       await fetch('/api/config', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           teamCount: gameState.teamCount, 
           turnDuration: gameState.turnDuration, 

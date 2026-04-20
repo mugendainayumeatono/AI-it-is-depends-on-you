@@ -64,6 +64,7 @@ export default function Timer({ gameState, currentTeam, serverOffset, mutate }: 
             isAutoPicking.current = true
             fetch('/api/pick', {
               method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'AUTO_PICK' }),
             }).then(() => {
               mutate()
