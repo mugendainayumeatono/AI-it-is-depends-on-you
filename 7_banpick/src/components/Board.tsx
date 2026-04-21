@@ -94,14 +94,44 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
   }
 
   const handleStart = async () => {
+    const nowSynced = new Date(Date.now() + serverOffset).toISOString()
+    
+    // Optimistic update
+    const optimisticData = {
+      gameState: {
+        ...gameState,
+        status: 'PICKING',
+        turnStartTime: nowSynced,
+        currentTeamIndex: 0,
+      },
+      teams,
+      members
+    }
+    
     setIsStarting(true)
+    mutate(optimisticData, { revalidate: false })
+    
     try {
-      await fetch('/api/pick', {
+      const res = await fetch('/api/pick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'START' }),
       })
-      await mutate()
+      
+      if (res.ok) {
+        const data = await res.json()
+        if (data.gameState) {
+          mutate(data, { revalidate: false })
+        } else {
+          await mutate()
+        }
+      } else {
+        console.warn("Failed to start draft. Rolling back...")
+        await mutate()
+      }
+    } catch (err) {
+      console.error("Network error during start. Rolling back...", err)
+      mutate()
     } finally {
       setIsStarting(false)
     }

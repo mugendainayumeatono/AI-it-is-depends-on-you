@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const { memberId, teamId, status, action } = await req.json()
 
     if (status === 'START') {
-      await prisma.gameState.update({
+      const updatedState = await prisma.gameState.update({
         where: { id: 'singleton' },
         data: {
           status: 'PICKING',
@@ -17,8 +17,20 @@ export async function POST(req: Request) {
           currentTeamIndex: 0,
         },
       })
+      
+      const [teams, members] = await Promise.all([
+        prisma.team.findMany({ include: { members: true }, orderBy: { order: 'asc' } }),
+        prisma.member.findMany({ orderBy: { name: 'asc' } }),
+      ])
+
       await triggerStateUpdate()
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ 
+        success: true, 
+        gameState: updatedState, 
+        teams, 
+        members,
+        serverTime: new Date().toISOString()
+      })
     }
 
     const gameState = await prisma.gameState.findUnique({ where: { id: 'singleton' } })

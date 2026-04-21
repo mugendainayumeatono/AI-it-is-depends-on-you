@@ -10,14 +10,18 @@ export function useGameState() {
   
   const { data, error, mutate } = useSWR('/api/state', fetcher, {
     refreshInterval: syncMethod === 'PUSHER' ? 0 : 1000,
-    onSuccess: (data) => {
-      if (data.serverTime) {
-        const serverDate = new Date(data.serverTime).getTime()
-        const localDate = Date.now()
-        setServerOffset(serverDate - localDate)
-      }
-    }
   })
+
+  // Update serverOffset whenever data with serverTime is received
+  useEffect(() => {
+    if (data?.serverTime) {
+      const serverDate = new Date(data.serverTime).getTime()
+      const localDate = Date.now()
+      // We only update if it's a fresh update to avoid jitter from re-renders
+      // But SWR data is stable if not changed, so this is fine.
+      setServerOffset(serverDate - localDate)
+    }
+  }, [data?.serverTime])
 
   useEffect(() => {
     if (syncMethod !== 'PUSHER') return

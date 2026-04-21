@@ -26,16 +26,18 @@ export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick
     const updateTimer = () => {
       const now = getSyncedNow()
       const startTime = new Date(gameState.turnStartTime).getTime()
-      const elapsed = Math.floor((now - startTime) / 1000)
+      const elapsedTotalMs = now - startTime
+      const elapsed = Math.floor(Math.max(0, elapsedTotalMs) / 1000)
       
       const turnDuration = gameState.turnDuration
       const reserveTime = currentTeam.reserveTime
 
-      if (elapsed < turnDuration) {
-        setTimeLeft(Math.max(0, turnDuration - elapsed))
+      if (elapsedTotalMs < turnDuration * 1000) {
+        setTimeLeft(Math.max(0, turnDuration - Math.floor(Math.max(0, elapsedTotalMs) / 1000)))
         setIsReserve(false)
       } else {
-        const remainingReserve = reserveTime - (elapsed - turnDuration)
+        const reserveElapsed = Math.floor((elapsedTotalMs - (turnDuration * 1000)) / 1000)
+        const remainingReserve = reserveTime - reserveElapsed
         if (remainingReserve <= 0) {
           setTimeLeft(0)
           setIsReserve(true)
