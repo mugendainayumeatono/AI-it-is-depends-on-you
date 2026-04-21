@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Board from '@/components/Board'
 
@@ -19,20 +19,20 @@ describe('Component: Board', () => {
   })
 
   it('should render teams and available members', () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     expect(screen.getByText(/Available Members/i)).toBeDefined()
     expect(screen.getByText(/Player 1/i)).toBeDefined()
   })
 
   it('should call randomize API', async () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     const btn = screen.getByText(/Random Teams/i)
     fireEvent.click(btn)
     expect(global.fetch).toHaveBeenCalledWith('/api/randomize', expect.objectContaining({ method: 'POST' }))
   })
 
   it('should call start game API', async () => {
-    render(<Board gameState={{...mockState, status: 'CONFIGURING'} as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
+    render(<Board gameState={{...mockState, status: 'CONFIGURING'} as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     const btn = screen.getByRole('button', { name: /Start Picking/i })
     fireEvent.click(btn)
     expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({ method: 'POST', body: JSON.stringify({ status: 'START' }) }))
@@ -40,20 +40,85 @@ describe('Component: Board', () => {
 
   it('should call reset draft API', async () => {
     global.confirm = vi.fn().mockReturnValue(true)
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={vi.fn()} setShowConfig={vi.fn()} />)
+    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
     const btn = screen.getByText(/Reset Draft/i)
     fireEvent.click(btn)
     expect(global.fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ method: 'POST' }))
   })
 
-  it('should handle drag end and call pick API', async () => {
+  it('should handle auto-pick from Timer', async () => {
     const mutate = vi.fn()
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} setShowConfig={vi.fn()} />)
+    // Setup state so Timer triggers onAutoPick immediately
+    const now = Date.now()
+    const state = { 
+      ...mockState, 
+      status: 'PICKING',
+      turnStartTime: new Date(now - 40000).toISOString() // 40s ago, turn duration is 30s, reserve is 0 (relative to 30s)
+    }
+    const teams = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(now))
+
+    render(<Board gameState={state as any} teams={teams as any} members={mockMembers as any} serverOffset={0} mutate={mutate} setShowConfig={vi.fn()} />)
     
-    // We can't easily trigger the exact dnd-kit events without massive mocking,
-    // so we'll mock the hook's returned drag end handler, or since we can't easily reach into the component,
-    // we'll mock the fetch and call it indirectly if possible, or just mock the DndContext.
-    // Instead of deep DndContext mocking, we'll just acknowledge the optimistic update test is hard here and focus on coverage.
+    // Timer should call onAutoPick
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    // handlePick should have been called, which calls mutate optimistically
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+      gameState: expect.objectContaining({
+        currentTeamIndex: 1
+      })
+    }), { revalidate: false })
+    
+    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"memberId":"m1"')
+    }))
+
+    vi.useRealTimers()
   })
 
+  it('should rollback on pick failure', async () => {
+    const mutate = vi.fn()
+    const now = Date.now()
+    const state = { 
+      ...mockState, 
+      status: 'PICKING',
+      turnStartTime: new Date(now - 40000).toISOString()
+    }
+    const teams = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
+
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
+      ok: false,
+      status: 409
+    }))
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(now))
+
+    render(<Board gameState={state as any} teams={teams as any} members={mockMembers as any} serverOffset={0} mutate={mutate} setShowConfig={vi.fn()} />)
+    
+    // Trigger auto-pick
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    // 1. Optimistic call
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+      gameState: expect.objectContaining({ currentTeamIndex: 1 })
+    }), { revalidate: false })
+
+    // 2. Wait for fetch promise and rollback call
+    // We need to exit the fake timer loop for the promise to resolve in some environments, 
+    // or just use real timers for a bit.
+    vi.useRealTimers()
+    
+    await waitFor(() => {
+      expect(mutate).toHaveBeenCalledWith()
+    }, { timeout: 2000 })
+  })
 })

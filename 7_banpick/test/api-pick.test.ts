@@ -106,4 +106,21 @@ describe('API: /api/pick', () => {
     expect(response.status).toBe(400)
     expect(data.error).toBe('Not your turn')
   })
+
+  it('should block picking if not in PICKING phase', async () => {
+    ;(prisma.gameState.findUnique as any).mockResolvedValue({
+      status: 'CONFIGURING'
+    })
+
+    const req = new Request('http://localhost/api/pick', {
+      method: 'POST',
+      body: JSON.stringify({ memberId: 'member1', teamId: 'team1' }),
+    })
+
+    const response = await POST(req)
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toBe('Not in picking phase')
+  })
 })

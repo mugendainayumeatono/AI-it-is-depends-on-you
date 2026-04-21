@@ -127,10 +127,64 @@ describe('Component: Configuration', () => {
     }))
   })
 
-  it('should update team name', () => {
+  it('should show alert if name is empty', () => {
+    global.alert = vi.fn()
     render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
-    const input = screen.getByDisplayValue('T1')
-    fireEvent.change(input, { target: { value: 'Team Alpha' } })
-    expect(input.getAttribute('value')).toBe('Team Alpha')
+    const addBtn = screen.getByText('Add')
+    fireEvent.click(addBtn)
+    expect(global.alert).toHaveBeenCalledWith("Please enter a name for the member.")
+  })
+
+  it('should handle edit click and then update member', async () => {
+    render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
+    
+    // Find edit button (lucide-pencil)
+    const editBtn = screen.getAllByRole('button').find(b => b.innerHTML.includes('lucide-pencil'))!
+    fireEvent.click(editBtn)
+
+    // Name should be "Member 1"
+    const nameInput = screen.getByDisplayValue('Member 1')
+    fireEvent.change(nameInput, { target: { value: 'Updated Member' } })
+
+    const saveBtn = screen.getByText('Update')
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/members', expect.objectContaining({
+        body: expect.stringContaining('"action":"UPDATE"')
+      }))
+    })
+  })
+
+  it('should cancel edit', () => {
+    render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
+    
+    const editBtn = screen.getAllByRole('button').find(b => b.innerHTML.includes('lucide-pencil'))!
+    fireEvent.click(editBtn)
+
+    const cancelBtn = screen.getByTitle('Cancel Edit')
+    fireEvent.click(cancelBtn)
+
+    expect(screen.queryByDisplayValue('Member 1')).toBeNull()
+  })
+
+  it('should handle fetch error in handleSubmitMember', async () => {
+    global.alert = vi.fn()
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
+      ok: false,
+      json: () => Promise.resolve({ error: 'Server Error' })
+    }))
+
+    render(<Configuration gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} mutate={mutate} />)
+    
+    const nameInput = screen.getByPlaceholderText('Name')
+    fireEvent.change(nameInput, { target: { value: 'New Player' } })
+    
+    const addBtn = screen.getByText('Add')
+    fireEvent.click(addBtn)
+
+    await waitFor(() => {
+      expect(global.alert).toHaveBeenCalledWith("Server Error")
+    })
   })
 })

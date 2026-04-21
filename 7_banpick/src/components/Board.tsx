@@ -24,9 +24,47 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
 
   const [isRandomizing, setIsRandomizing] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
 
   const handleDragStart = (event: any) => {
     setActiveId(event.active.id)
+  }
+
+  const handlePick = (memberId: string, teamId: string) => {
+    const pickedMember = members.find(m => m.id === memberId)
+    if (!pickedMember) return
+
+    const syncedNow = new Date(Date.now() + serverOffset).toISOString()
+
+    // Optimistic update payload
+    const optimisticData = {
+      gameState: {
+        ...gameState,
+        currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
+        turnStartTime: syncedNow,
+      },
+      members: members.map(m => m.id === memberId ? { ...m, teamId } : m),
+      teams: teams.map(t => t.id === teamId ? { ...t, members: [...t.members, pickedMember] } : t)
+    }
+
+    // 1. Instant optimistic update without revalidation
+    mutate(optimisticData, { revalidate: false })
+
+    // 2. Fire-and-forget request to server
+    fetch('/api/pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId, teamId }),
+    }).then(async (res) => {
+      // 3. Rollback if the server rejected the pick (e.g., concurrency conflict P2025)
+      if (!res.ok) {
+        console.warn("Pick rejected by server (likely a concurrency conflict). Rolling back...")
+        await mutate() 
+      }
+    }).catch(err => {
+      console.error("Network error during pick. Rolling back...", err)
+      mutate() 
+    })
   }
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -34,42 +72,14 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
     setActiveId(null)
 
     if (over && currentTeam && over.id === currentTeam.id) {
-      const memberId = active.id as string
-      const teamId = over.id as string
-      
-      const pickedMember = members.find(m => m.id === memberId)
-      if (!pickedMember) return
-
-      // Optimistic update payload
-      const optimisticData = {
-        gameState: {
-          ...gameState,
-          currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
-          turnStartTime: new Date().toISOString(),
-        },
-        members: members.map(m => m.id === memberId ? { ...m, teamId } : m),
-        teams: teams.map(t => t.id === teamId ? { ...t, members: [...t.members, pickedMember] } : t)
-      }
-
-      // 1. Instant optimistic update without revalidation
-      mutate(optimisticData, { revalidate: false })
-
-      // 2. Fire-and-forget request to server
-      fetch('/api/pick', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId, teamId }),
-      }).then(async (res) => {
-        // 3. Rollback if the server rejected the pick (e.g., concurrency conflict P2025)
-        if (!res.ok) {
-          console.warn("Pick rejected by server (likely a concurrency conflict). Rolling back...")
-          await mutate() 
-        }
-      }).catch(err => {
-        console.error("Network error during pick. Rolling back...", err)
-        mutate() 
-      })
+      handlePick(active.id as string, over.id as string)
     }
+  }
+
+  const handleAutoPick = () => {
+    if (unpickedMembers.length === 0 || !currentTeam) return
+    const randomMember = unpickedMembers[Math.floor(Math.random() * unpickedMembers.length)]
+    handlePick(randomMember.id, currentTeam.id)
   }
 
   const handleRandomize = async () => {
@@ -84,12 +94,17 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
   }
 
   const handleStart = async () => {
-    await fetch('/api/pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'START' }),
-    })
-    mutate()
+    setIsStarting(true)
+    try {
+      await fetch('/api/pick', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'START' }),
+      })
+      await mutate()
+    } finally {
+      setIsStarting(false)
+    }
   }
 
   const handleReset = async () => {
@@ -126,14 +141,14 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
             <div className="flex gap-4">
               <button 
                 onClick={() => setShowConfig(true)}
-                disabled={isRandomizing || isResetting}
+                disabled={isRandomizing || isResetting || isStarting}
                 className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Settings size={18} /> Configuration
               </button>
               <button 
                 onClick={handleRandomize}
-                disabled={isRandomizing || isResetting}
+                disabled={isRandomizing || isResetting || isStarting}
                 className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Shuffle size={18} /> Random Teams
@@ -141,7 +156,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
               {gameState.status === 'CONFIGURING' && (
                 <button 
                   onClick={handleStart}
-                  disabled={members.length === 0 || teams.length === 0 || isRandomizing || isResetting}
+                  disabled={members.length === 0 || teams.length === 0 || isRandomizing || isResetting || isStarting}
                   className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 transition font-medium shadow disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
                   Start Picking
@@ -150,21 +165,21 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
               {(gameState.status === 'PICKING' || gameState.status === 'COMPLETED') && (
                 <button 
                   onClick={handleReset}
-                  disabled={isRandomizing || isResetting}
+                  disabled={isRandomizing || isResetting || isStarting}
                   className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Reset Draft
                 </button>
               )}
             </div>
-            {(isRandomizing || isResetting) && (
+            {(isRandomizing || isResetting || isStarting) && (
               <p className="text-sm text-yellow-400 animate-pulse font-medium">
-                {isRandomizing ? 'Randomizing teams, please wait...' : 'Resetting draft, please wait...'}
+                {isRandomizing ? 'Randomizing teams, please wait...' : isResetting ? 'Resetting draft, please wait...' : 'Starting draft, please wait...'}
               </p>
             )}
           </div>
           {gameState.status === 'PICKING' && currentTeam && (
-            <Timer gameState={gameState} currentTeam={currentTeam} serverOffset={serverOffset} mutate={mutate} />
+            <Timer gameState={gameState} currentTeam={currentTeam} serverOffset={serverOffset} onAutoPick={handleAutoPick} />
           )}
           {gameState.status === 'COMPLETED' && (
             <div className="text-gray-300 px-8 py-4 border-2 border-gray-600 rounded-xl shadow-lg">

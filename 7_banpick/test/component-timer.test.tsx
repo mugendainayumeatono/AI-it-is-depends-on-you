@@ -24,7 +24,7 @@ describe('Component: Timer', () => {
     members: []
   }
 
-  const mutate = vi.fn()
+  const onAutoPick = vi.fn()
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -33,10 +33,11 @@ describe('Component: Timer', () => {
       ok: true,
       json: () => Promise.resolve({ success: true })
     }))
+    onAutoPick.mockClear()
   })
 
   it('should display turn time initially', () => {
-    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={0} mutate={mutate} />)
+    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={0} onAutoPick={onAutoPick} />)
     expect(screen.getByText(/Turn Time/i)).toBeDefined()
     // 10s turn duration, 0s elapsed
     expect(screen.getByText(/10s/)).toBeDefined()
@@ -46,7 +47,7 @@ describe('Component: Timer', () => {
     // Client is 5 seconds behind server (serverOffset = 5000)
     // Server says turn started at 'now', client thinks it's 'now'.
     // With offset, client thinks it's 'now + 5s', so 5s have "passed" according to server.
-    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={5000} mutate={mutate} />)
+    render(<Timer gameState={mockGameState} currentTeam={mockTeam} serverOffset={5000} onAutoPick={onAutoPick} />)
     
     // 10s turn - 5s elapsed = 5s
     expect(screen.getByText(/5s/)).toBeDefined()
@@ -59,7 +60,7 @@ describe('Component: Timer', () => {
       turnStartTime: new Date(now - 11000).toISOString() 
     }
     
-    render(<Timer gameState={state} currentTeam={mockTeam} serverOffset={0} mutate={mutate} />)
+    render(<Timer gameState={state} currentTeam={mockTeam} serverOffset={0} onAutoPick={onAutoPick} />)
     
     expect(screen.getByText(/Reserve Time/i)).toBeDefined()
     // 30s reserve - (11s - 10s) = 29s
@@ -67,8 +68,6 @@ describe('Component: Timer', () => {
   })
 
   it('should auto-pick when reserve time runs out', async () => {
-    const mutate = vi.fn()
-    
     // 10s turn duration, turn started 10s ago, reserve time 1s.
     // Total time allowed is 11s.
     const state = { 
@@ -77,17 +76,14 @@ describe('Component: Timer', () => {
     }
     const team = { ...mockTeam, reserveTime: 1 }
     
-    render(<Timer gameState={state} currentTeam={team} serverOffset={0} mutate={mutate} />)
+    render(<Timer gameState={state} currentTeam={team} serverOffset={0} onAutoPick={onAutoPick} />)
     
     // Advance time to 1.1s later (total 11.1s since start)
     await act(async () => {
       vi.advanceTimersByTime(1100)
     })
     
-    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
-      method: 'POST',
-      body: expect.stringContaining('AUTO_PICK')
-    }))
+    expect(onAutoPick).toHaveBeenCalled()
   })
 
   it('should not call auto-pick multiple times due to ref locking', async () => {
@@ -97,7 +93,7 @@ describe('Component: Timer', () => {
     }
     const team = { ...mockTeam, reserveTime: 0 } // Already expired
     
-    render(<Timer gameState={state} currentTeam={team} serverOffset={0} mutate={mutate} />)
+    render(<Timer gameState={state} currentTeam={team} serverOffset={0} onAutoPick={onAutoPick} />)
     
     await act(async () => {
       vi.advanceTimersByTime(100)
@@ -106,6 +102,6 @@ describe('Component: Timer', () => {
     })
     
     // Only called once because of isAutoPicking.current = true
-    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(onAutoPick).toHaveBeenCalledTimes(1)
   })
 })

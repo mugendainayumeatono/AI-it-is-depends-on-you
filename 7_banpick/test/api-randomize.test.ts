@@ -25,4 +25,14 @@ describe('API: /api/randomize', () => {
       data: { status: 'COMPLETED' }
     }))
   })
+
+  it('should return error if no teams configured', async () => {
+    ;(prisma.team.findMany as any).mockResolvedValue([])
+    ;(prisma.member.findMany as any).mockResolvedValue([{ id: 'm1' }])
+
+    const response = await POST()
+    expect(response.status).toBe(400)
+    const data = await response.json()
+    expect(data.error).toBe('No teams configured')
+  })
 })

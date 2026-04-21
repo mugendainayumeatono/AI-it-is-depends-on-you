@@ -7,42 +7,23 @@ interface Props {
   gameState: GameState
   currentTeam: Team
   serverOffset: number
-  mutate: (data?: any, opts?: any) => void
+  onAutoPick: () => void
 }
 
-export default function Timer({ gameState, currentTeam, serverOffset, mutate }: Props) {
+export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick }: Props) {
   // Use a ref to track if an auto-pick is already in progress to avoid multiple calls
   const isAutoPicking = useRef(false)
 
   const getSyncedNow = () => Date.now() + serverOffset
 
-  const calculateInitialTime = () => {
-    const now = getSyncedNow()
-    const startTime = new Date(gameState.turnStartTime).getTime()
-    const elapsed = Math.floor((now - startTime) / 1000)
-    
-    if (elapsed < gameState.turnDuration) {
-      return gameState.turnDuration - elapsed
-    } else {
-      return Math.max(0, currentTeam.reserveTime - (elapsed - gameState.turnDuration))
-    }
-  }
-
-  const [timeLeft, setTimeLeft] = useState(calculateInitialTime)
-  const [isReserve, setIsReserve] = useState(() => {
-    const now = getSyncedNow()
-    const startTime = new Date(gameState.turnStartTime).getTime()
-    const elapsed = Math.floor((now - startTime) / 1000)
-    return elapsed >= gameState.turnDuration
-  })
+  const [timeLeft, setTimeLeft] = useState(0)
+  const [isReserve, setIsReserve] = useState(false)
 
   useEffect(() => {
     // Reset auto-picking flag whenever turn changes
     isAutoPicking.current = false
-  }, [gameState.turnStartTime])
 
-  useEffect(() => {
-    const interval = setInterval(() => {
+    const updateTimer = () => {
       const now = getSyncedNow()
       const startTime = new Date(gameState.turnStartTime).getTime()
       const elapsed = Math.floor((now - startTime) / 1000)
@@ -51,7 +32,7 @@ export default function Timer({ gameState, currentTeam, serverOffset, mutate }: 
       const reserveTime = currentTeam.reserveTime
 
       if (elapsed < turnDuration) {
-        setTimeLeft(turnDuration - elapsed)
+        setTimeLeft(Math.max(0, turnDuration - elapsed))
         setIsReserve(false)
       } else {
         const remainingReserve = reserveTime - (elapsed - turnDuration)
@@ -60,27 +41,24 @@ export default function Timer({ gameState, currentTeam, serverOffset, mutate }: 
           setIsReserve(true)
           
           // Trigger auto pick if we haven't already
-          if (!isAutoPicking.current) {
+          if (!isAutoPicking.current && gameState.status === 'PICKING') {
             isAutoPicking.current = true
-            fetch('/api/pick', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'AUTO_PICK' }),
-            }).then(() => {
-              mutate()
-            }).catch(() => {
-              isAutoPicking.current = false
-            })
+            onAutoPick()
           }
         } else {
           setTimeLeft(remainingReserve)
           setIsReserve(true)
         }
       }
-    }, 100) // Run more frequently for smoother UI
+    }
+
+    // Update immediately on mount or when props change
+    updateTimer()
+
+    const interval = setInterval(updateTimer, 100)
 
     return () => clearInterval(interval)
-  }, [gameState, currentTeam, mutate, serverOffset])
+  }, [gameState, currentTeam, serverOffset, onAutoPick])
 
   return (
     <div className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors shadow-lg

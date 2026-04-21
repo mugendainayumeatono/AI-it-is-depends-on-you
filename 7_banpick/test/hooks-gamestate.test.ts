@@ -117,4 +117,22 @@ describe('Hook: useGameState', () => {
     expect(mocks.mockUnsubscribe).toHaveBeenCalledWith('banpick-channel')
     expect(mocks.mockDisconnect).toHaveBeenCalled()
   })
+
+  it('should warn and not initialize pusher if keys are missing', () => {
+    process.env.NEXT_PUBLIC_SYNC_METHOD = 'PUSHER'
+    process.env.NEXT_PUBLIC_PUSHER_KEY = ''
+    
+    console.warn = vi.fn()
+    
+    ;(useSWR as any).mockReturnValue({
+      data: undefined,
+      error: undefined,
+      mutate: vi.fn()
+    })
+
+    renderHook(() => useGameState())
+
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Pusher keys missing'))
+    expect(mocks.mockConstructor).not.toHaveBeenCalled()
+  })
 })
