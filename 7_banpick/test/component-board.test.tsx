@@ -76,7 +76,11 @@ describe('Component: Board', () => {
     
     expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
       method: 'POST',
-      body: expect.stringContaining('"memberId":"m1"')
+      body: expect.stringContaining('"action":"AUTO_PICK"')
+    }))
+    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"memberId":null')
     }))
 
     vi.useRealTimers()

@@ -83,6 +83,11 @@ describe('API: /api/pick', () => {
     expect(prisma.member.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'randomMember' }
     }))
+    // Verify reserveTime is forced to 0
+    expect(prisma.team.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'team1' },
+      data: { reserveTime: 0 }
+    }))
   })
 
   it('should block picking if not current team turn', async () => {

@@ -30,21 +30,33 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
     setActiveId(event.active.id)
   }
 
-  const handlePick = (memberId: string, teamId: string) => {
-    const pickedMember = members.find(m => m.id === memberId)
-    if (!pickedMember) return
+  const handlePick = (memberId: string | null, teamId: string, action?: string) => {
+    const pickedMember = action === 'AUTO_PICK' ? null : members.find(m => m.id === memberId)
+    if (action !== 'AUTO_PICK' && !pickedMember) return
 
-    const syncedNow = new Date(Date.now() + serverOffset).toISOString()
+    const syncedNow = new Date(Date.now() + serverOffset)
+    const startTime = new Date(gameState.turnStartTime).getTime()
+    const elapsedSeconds = Math.floor(Math.max(0, syncedNow.getTime() - startTime) / 1000)
+    const extraTime = Math.max(0, elapsedSeconds - gameState.turnDuration)
+    const newReserveTime = action === 'AUTO_PICK' ? 0 : Math.max(0, currentTeam.reserveTime - extraTime)
 
     // Optimistic update payload
     const optimisticData = {
       gameState: {
         ...gameState,
         currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
-        turnStartTime: syncedNow,
+        turnStartTime: syncedNow.toISOString(),
       },
-      members: members.map(m => m.id === memberId ? { ...m, teamId } : m),
-      teams: teams.map(t => t.id === teamId ? { ...t, members: [...t.members, pickedMember] } : t)
+      members: action === 'AUTO_PICK' 
+        ? members // We don't know which member will be picked yet
+        : members.map(m => m.id === memberId ? { ...m, teamId } : m),
+      teams: teams.map(t => t.id === teamId 
+        ? { 
+            ...t, 
+            reserveTime: newReserveTime,
+            members: action === 'AUTO_PICK' ? t.members : [...t.members, pickedMember!] 
+          } 
+        : t)
     }
 
     // 1. Instant optimistic update without revalidation
@@ -54,7 +66,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
     fetch('/api/pick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId, teamId }),
+      body: JSON.stringify({ memberId, teamId, action }),
     }).then(async (res) => {
       // 3. Rollback if the server rejected the pick (e.g., concurrency conflict P2025)
       if (!res.ok) {
@@ -78,8 +90,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
 
   const handleAutoPick = () => {
     if (unpickedMembers.length === 0 || !currentTeam) return
-    const randomMember = unpickedMembers[Math.floor(Math.random() * unpickedMembers.length)]
-    handlePick(randomMember.id, currentTeam.id)
+    handlePick(null, currentTeam.id, 'AUTO_PICK')
   }
 
   const handleRandomize = async () => {

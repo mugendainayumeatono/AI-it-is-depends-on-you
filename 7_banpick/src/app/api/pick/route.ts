@@ -58,7 +58,12 @@ export async function POST(req: Request) {
     const extraTime = Math.max(0, elapsedSeconds - gameState.turnDuration)
 
     // Update team reserve time
-    const newReserveTime = Math.max(0, currentTeam.reserveTime - extraTime)
+    let newReserveTime = Math.max(0, currentTeam.reserveTime - extraTime)
+    
+    // If it's an auto-pick, it means the reserve time is exhausted
+    if (action === 'AUTO_PICK') {
+      newReserveTime = 0
+    }
 
     try {
       await prisma.$transaction([
