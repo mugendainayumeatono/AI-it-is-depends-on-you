@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS & STT Tool</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Voice Bridge</h1>
+    </header>
+
+    <section class="settings">
+      <details>
+        <summary>API Settings</summary>
+        <div class="input-group">
+          <label for="api-key">Google Cloud API Key</label>
+          <input type="password" id="api-key" placeholder="Enter your API key">
+          <button id="save-key">Save Key</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="tts-section">
+      <h3>Text to Speech</h3>
+      <textarea id="tts-text" placeholder="Enter text to convert to speech..."></textarea>
+      <div class="controls">
+        <select id="voice-select">
+          <option value="en-US-Wavenet-D">English (US) - Male</option>
+          <option value="en-US-Wavenet-C">English (US) - Female</option>
+          <option value="zh-CN-Wavenet-A">Chinese (CN) - Female</option>
+          <option value="zh-CN-Wavenet-B">Chinese (CN) - Male</option>
+        </select>
+        <button id="tts-btn" class="primary-btn">Generate & Play</button>
+      </div>
+    </section>
+
+    <hr>
+
+    <section class="stt-section">
+      <h3>Speech to Text</h3>
+      <p class="hint">Record audio from the current tab</p>
+      <div class="stt-controls">
+        <button id="record-btn" class="record-btn">Hold to Record</button>
+        <button id="play-record-btn" disabled>Play Recording</button>
+        <button id="stt-btn" class="primary-btn" disabled>Convert to Text</button>
+      </div>
+    </section>
+
+    <div id="status" class="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
