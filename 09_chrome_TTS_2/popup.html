@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Assistant</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <span class="header-icon">🎙️</span>
+      <h1 class="header-title">Voice Assistant</h1>
+    </div>
+  </header>
+
+  <!-- Tab Navigation -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="tts">
+      <span class="tab-icon">🔊</span>
+      TTS
+    </button>
+    <button class="tab-btn" data-tab="stt">
+      <span class="tab-icon">🎤</span>
+      STT
+    </button>
+    <button class="tab-btn" data-tab="settings">
+      <span class="tab-icon">⚙️</span>
+      Settings
+    </button>
+  </nav>
+
+  <!-- TTS Panel -->
+  <div class="tab-panel active" id="panel-tts">
+    <div class="panel-content">
+
+      <!-- Voice Selector -->
+      <div class="form-group">
+        <label class="form-label">Voice</label>
+        <div class="select-wrapper">
+          <select id="voice-select" class="form-select">
+            <option value="">— Select a voice —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Speed & Pitch Sliders -->
+      <div class="sliders-row">
+        <div class="form-group slider-group">
+          <label class="form-label">Speed <span id="speed-value" class="slider-value">1.0x</span></label>
+          <input type="range" id="speed-slider" class="slider" min="0.25" max="4.0" step="0.05" value="1.0" />
+          <div class="slider-ticks">
+            <span>0.25x</span>
+            <span>1x</span>
+            <span>4x</span>
+          </div>
+        </div>
+        <div class="form-group slider-group">
+          <label class="form-label">Pitch <span id="pitch-value" class="slider-value">0</span></label>
+          <input type="range" id="pitch-slider" class="slider" min="-20" max="20" step="1" value="0" />
+          <div class="slider-ticks">
+            <span>-20</span>
+            <span>0</span>
+            <span>+20</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Text Input -->
+      <div class="form-group">
+        <label class="form-label">
+          Text Input
+          <span id="char-counter" class="char-counter">0 / 5000</span>
+        </label>
+        <textarea
+          id="tts-text"
+          class="form-textarea"
+          placeholder="Enter text to speak..."
+          maxlength="5000"
+          rows="5"
+        ></textarea>
+      </div>
+
+      <!-- TTS Buttons -->
+      <div class="button-row">
+        <button id="speak-btn" class="btn btn-primary">
+          ▶ Speak
+        </button>
+        <button id="stop-btn" class="btn btn-secondary" disabled>
+          ■ Stop
+        </button>
+        <button id="clear-btn" class="btn btn-ghost">
+          Clear
+        </button>
+      </div>
+
+      <!-- TTS Status -->
+      <div id="tts-status" class="status-msg hidden"></div>
+
+    </div>
+  </div>
+
+  <!-- STT Panel -->
+  <div class="tab-panel" id="panel-stt">
+    <div class="panel-content">
+
+      <!-- Language Selector -->
+      <div class="stt-top-row">
+        <div class="form-group flex-1">
+          <label class="form-label">Language</label>
+          <div class="select-wrapper">
+            <select id="stt-language" class="form-select">
+              <option value="en-US">English (US)</option>
+              <option value="en-GB">English (UK)</option>
+              <option value="zh-CN">Chinese (Simplified)</option>
+              <option value="zh-TW">Chinese (Traditional)</option>
+              <option value="ja-JP">Japanese</option>
+              <option value="ko-KR">Korean</option>
+              <option value="es-ES">Spanish</option>
+              <option value="fr-FR">French</option>
+              <option value="de-DE">German</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Audio Source -->
+        <div class="form-group">
+          <label class="form-label">Source</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="audio-source" value="microphone" checked />
+              <span class="radio-custom"></span>
+              Microphone
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="audio-source" value="tab" />
+              <span class="radio-custom"></span>
+              Tab Audio
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wave Visualizer -->
+      <div class="wave-container">
+        <div class="wave-visualizer" id="wave-visualizer">
+          <div class="wave-bar" style="--i:0"></div>
+          <div class="wave-bar" style="--i:1"></div>
+          <div class="wave-bar" style="--i:2"></div>
+          <div class="wave-bar" style="--i:3"></div>
+          <div class="wave-bar" style="--i:4"></div>
+          <div class="wave-bar" style="--i:5"></div>
+          <div class="wave-bar" style="--i:6"></div>
+          <div class="wave-bar" style="--i:7"></div>
+          <div class="wave-bar" style="--i:8"></div>
+        </div>
+        <div class="timer-display" id="timer-display">00:00</div>
+      </div>
+
+      <!-- Record Button -->
+      <div class="record-section">
+        <button id="record-btn" class="btn btn-record">
+          <span class="record-dot">●</span>
+          <span id="record-label">Hold to Record</span>
+        </button>
+      </div>
+
+      <!-- STT Record Status -->
+      <div id="stt-record-status" class="status-msg hidden"></div>
+
+      <!-- Playback Section (hidden until recording done) -->
+      <div class="playback-section hidden" id="playback-section">
+        <div class="playback-header">
+          <span class="playback-label">Recording Ready</span>
+          <div class="playback-controls">
+            <button id="play-btn" class="btn btn-playback">
+              <span>▶</span> Play
+            </button>
+            <button id="stop-playback-btn" class="btn btn-playback-stop" disabled>
+              <span>■</span> Stop
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Convert Button -->
+      <div class="convert-section">
+        <button id="convert-btn" class="btn btn-convert" disabled>
+          <span>✦</span> Convert to Text
+        </button>
+      </div>
+
+      <!-- STT Result -->
+      <div class="form-group">
+        <label class="form-label">
+          Transcript
+          <button id="copy-btn" class="btn btn-ghost btn-sm hidden" title="Copy to clipboard">
+            📋 Copy
+          </button>
+        </label>
+        <textarea
+          id="stt-result"
+          class="form-textarea"
+          placeholder="Transcription will appear here..."
+          readonly
+          rows="4"
+        ></textarea>
+      </div>
+
+      <!-- STT Convert Status -->
+      <div id="stt-status" class="status-msg hidden"></div>
+
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="tab-panel" id="panel-settings">
+    <div class="panel-content">
+
+      <!-- API Configuration Card -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <span class="settings-card-icon">🔑</span>
+          <h2 class="settings-card-title">API Configuration</h2>
+        </div>
+        <div class="settings-card-body">
+          <div class="form-group">
+            <label class="form-label">Google Cloud API Key</label>
+            <div class="api-key-input-row">
+              <input
+                type="password"
+                id="api-key-input"
+                class="form-input"
+                placeholder="AIza..."
+                autocomplete="off"
+              />
+              <button id="toggle-key-visibility" class="btn btn-ghost btn-icon" title="Toggle visibility">
+                👁️
+              </button>
+            </div>
+            <p class="form-hint">
+              Your API key is stored locally and never sent to any server other than Google APIs.
+            </p>
+          </div>
+          <button id="save-settings-btn" class="btn btn-primary btn-full">
+            <span>💾</span> Save API Key
+          </button>
+          <div id="settings-status" class="status-msg hidden"></div>
+        </div>
+      </div>
+
+      <!-- About Card -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <span class="settings-card-icon">ℹ️</span>
+          <h2 class="settings-card-title">About</h2>
+        </div>
+        <div class="settings-card-body">
+          <p class="about-text">
+            <strong>Voice Assistant v1.0.0</strong><br />
+            A Chrome extension for Text-to-Speech and Speech-to-Text
+            powered by Google Cloud AI APIs.
+          </p>
+          <ul class="about-list">
+            <li>TTS: Google Cloud Text-to-Speech API</li>
+            <li>STT: Google Cloud Speech-to-Text API</li>
+            <li>Manifest V3 compliant</li>
+            <li>Context menu integration</li>
+          </ul>
+          <p class="about-text">
+            Enable the APIs in Google Cloud Console and generate
+            an API key with access to both services.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
