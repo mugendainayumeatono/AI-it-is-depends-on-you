@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Cloud TTS & STT</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Cloud TTS & STT</h1>
+      <nav>
+        <button id="tab-tts" class="active">TTS</button>
+        <button id="tab-stt">STT</button>
+        <button id="tab-settings">Settings</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- TTS Section -->
+      <section id="section-tts">
+        <div class="textarea-wrapper">
+          <textarea id="tts-input" placeholder="Enter text here..."></textarea>
+          <button id="btn-clear-tts" class="icon-btn" title="Clear">✕</button>
+        </div>
+        <div class="controls-grid">
+          <div class="field">
+            <label for="voice-select">Voice:</label>
+            <select id="voice-select">
+              <option value="">Loading voices...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="effects-select">Optimized For:</label>
+            <select id="effects-select">
+              <option value="">Default (None)</option>
+              <option value="wearable-class-device">Wearables (Watch)</option>
+              <option value="handset-class-device">Handset (Phone)</option>
+              <option value="headphone-class-device">Headphones</option>
+              <option value="small-bluetooth-speaker-class-device">Small BT Speaker</option>
+              <option value="medium-bluetooth-speaker-class-device">Medium BT Speaker</option>
+              <option value="large-home-entertainment-class-device">Home Theater</option>
+              <option value="telephony-class-application">Telephony (Phone Call)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="sliders">
+          <div class="field">
+            <label>Rate: <span id="val-rate">1.0</span>x</label>
+            <input type="range" id="input-rate" min="0.25" max="4.0" step="0.25" value="1.0">
+          </div>
+          <div class="field">
+            <label>Pitch: <span id="val-pitch">0.0</span></label>
+            <input type="range" id="input-pitch" min="-20.0" max="20.0" step="1.0" value="0.0">
+          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button id="btn-tts-play" class="primary">▶ Generate & Play</button>
+          <button id="btn-tts-stop" class="secondary" disabled>⏹ Stop</button>
+          <button id="btn-tts-download" class="secondary" disabled>⬇ Download</button>
+        </div>
+      </section>
+
+      <!-- STT Section -->
+      <section id="section-stt" class="hidden">
+        <div class="controls">
+          <label for="stt-lang-select">Recognition Language:</label>
+          <select id="stt-lang-select">
+            <option value="en-US">English (US)</option>
+            <option value="zh-CN">Chinese (Mandarin)</option>
+          </select>
+        </div>
+        <div class="recording-area">
+          <button id="btn-record" class="record-btn">
+            <span class="pulse-icon">●</span> Hold to Record Tab Audio
+          </button>
+          <div id="recording-status">Ready</div>
+        </div>
+        <div class="audio-controls">
+          <audio id="audio-playback" controls></audio>
+        </div>
+        <div class="action-buttons">
+          <button id="btn-stt-convert" class="primary">✨ Convert to Text</button>
+        </div>
+        <div class="textarea-wrapper">
+          <textarea id="stt-result" placeholder="Transcription result..."></textarea>
+          <div class="stt-tools">
+            <button id="btn-copy-stt" class="small-btn">📋 Copy</button>
+            <button id="btn-reuse-stt" class="small-btn">⤴ Use as TTS Input</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Section -->
+      <section id="section-settings" class="hidden">
+        <div class="field">
+          <label for="api-key">Google Cloud API Key:</label>
+          <input type="password" id="api-key" placeholder="Enter your API Key">
+        </div>
+        <button id="btn-save-settings" class="primary">Save Settings</button>
+        <p class="hint">Ensure Cloud Text-to-Speech and Speech-to-Text APIs are enabled in your GCP project.</p>
+      </section>
+    </main>
+
+    <footer>
+      <div id="status-message"></div>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
