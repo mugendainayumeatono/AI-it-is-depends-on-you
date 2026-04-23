@@ -1,6 +1,7 @@
 let mediaRecorder = null;
 let audioChunks = [];
 let currentAudio = null;
+let pendingStopResponse = null;
 
 // Signal that the offscreen document is ready
 chrome.runtime.sendMessage({ type: 'offscreen-ready', target: 'background' });
@@ -104,8 +105,12 @@ async function startRecording(streamId, sendResponse) {
     };
     
     mediaRecorder.onerror = (e) => {
-      chrome.runtime.sendMessage({ type: 'audio-finished' }); // Cleanup UI
       console.error('MediaRecorder error:', e.error);
+      if (pendingStopResponse) {
+        pendingStopResponse({ success: false, error: 'MediaRecorder error: ' + e.error });
+        pendingStopResponse = null;
+      }
+      chrome.runtime.sendMessage({ type: 'audio-finished' }); // Cleanup UI
     };
 
     mediaRecorder.onstop = () => {
@@ -120,19 +125,33 @@ async function startRecording(streamId, sendResponse) {
       // 2. Process data
       try {
         if (audioChunks.length === 0) {
-          sendResponse({ success: false, error: 'No audio data captured' });
+          if (pendingStopResponse) {
+            pendingStopResponse({ success: false, error: 'No audio data captured' });
+            pendingStopResponse = null;
+          }
           return;
         }
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
         const reader = new FileReader();
         reader.onloadend = () => {
-          sendResponse({ success: true, dataUrl: reader.result });
+          if (pendingStopResponse) {
+            pendingStopResponse({ success: true, dataUrl: reader.result });
+            pendingStopResponse = null;
+          }
           audioChunks = []; // Clear for next time
         };
-        reader.onerror = () => sendResponse({ success: false, error: 'FileReader error' });
+        reader.onerror = () => {
+          if (pendingStopResponse) {
+            pendingStopResponse({ success: false, error: 'FileReader error' });
+            pendingStopResponse = null;
+          }
+        };
         reader.readAsDataURL(blob);
       } catch (e) {
-        sendResponse({ success: false, error: e.message });
+        if (pendingStopResponse) {
+          pendingStopResponse({ success: false, error: e.message });
+          pendingStopResponse = null;
+        }
       }
     };
 
@@ -148,6 +167,6 @@ function stopRecording(sendResponse) {
     sendResponse({ success: false, error: 'No active recording found' });
     return;
   }
-  // No need to set onstop here, it's already defined in startRecording
+  pendingStopResponse = sendResponse;
   mediaRecorder.stop();
 }

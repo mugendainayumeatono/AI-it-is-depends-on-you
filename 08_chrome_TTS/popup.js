@@ -12,6 +12,8 @@ const elements = {
   apiKey: document.getElementById('api-key'),
   saveSettings: document.getElementById('btn-save-settings'),
   ttsInput: document.getElementById('tts-input'),
+  ttsLangSelect: document.getElementById('tts-lang-select'),
+  modelSelect: document.getElementById('model-select'),
   voiceSelect: document.getElementById('voice-select'),
   btnTtsPlay: document.getElementById('btn-tts-play'),
   btnRecord: document.getElementById('btn-record'),
@@ -34,6 +36,7 @@ const elements = {
 };
 
 let apiKey = '';
+let allVoices = [];
 let isRecording = false;
 let isStopping = false;
 let audioDataUrl = null;
@@ -106,12 +109,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (data.effects) elements.effectsSelect.value = data.effects;
   if (data.sttLang) elements.sttLangSelect.value = data.sttLang;
+  if (data.ttsLang) elements.ttsLangSelect.value = data.ttsLang;
+  if (data.ttsModel) elements.modelSelect.value = data.ttsModel;
 
   // Persistence listeners
   elements.inputRate.onchange = (e) => chrome.storage.local.set({ rate: e.target.value });
   elements.inputPitch.onchange = (e) => chrome.storage.local.set({ pitch: e.target.value });
   elements.effectsSelect.onchange = (e) => chrome.storage.local.set({ effects: e.target.value });
   elements.sttLangSelect.onchange = (e) => chrome.storage.local.set({ sttLang: e.target.value });
+  elements.ttsLangSelect.onchange = (e) => {
+    chrome.storage.local.set({ ttsLang: e.target.value });
+    renderVoices();
+  };
+  elements.modelSelect.onchange = (e) => {
+    chrome.storage.local.set({ ttsModel: e.target.value });
+    renderVoices();
+  };
   elements.voiceSelect.onchange = (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt) {
@@ -180,24 +193,65 @@ async function loadVoices() {
     if (!response.ok) throw new Error('Failed to load voices');
     const data = await response.json();
     if (data.voices) {
-      const { preferredVoice } = await chrome.storage.local.get(['preferredVoice']);
-      elements.voiceSelect.innerHTML = data.voices
-        .filter(v => v.languageCodes.some(lc => lc.toLowerCase().includes('zh-') || lc.toLowerCase().includes('en-')))
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(v => {
-          const selected = v.name === preferredVoice ? 'selected' : '';
-          const langLabel = v.languageCodes[0].replace('zh-CN', 'Mandarin (CN)')
-                                             .replace('zh-TW', 'Mandarin (TW)')
-                                             .replace('zh-HK', 'Cantonese (HK)');
-          return `<option value="${v.name}" data-lang="${v.languageCodes[0]}" ${selected}>${langLabel}: ${v.name} (${v.ssmlGender})</option>`;
-        })
-        .join('');
+      allVoices = data.voices;
+      
+      // Update language select with available languages (optional, but good for completeness)
+      // For now, keep the defaults but ensure they exist in the list
+      const langs = [...new Set(allVoices.flatMap(v => v.languageCodes))].sort();
+      const currentLang = elements.ttsLangSelect.value;
+      
+      // If we want to dynamically fill languages:
+      /*
+      elements.ttsLangSelect.innerHTML = langs.map(l => 
+        `<option value="${l}" ${l === currentLang ? 'selected' : ''}>${l}</option>`
+      ).join('');
+      */
+      
+      renderVoices();
     }
   } catch (error) {
     elements.voiceSelect.innerHTML = '<option value="">Error loading voices</option>';
   } finally {
     elements.voiceSelect.disabled = false;
   }
+}
+
+function renderVoices() {
+  const selectedLang = elements.ttsLangSelect.value;
+  const selectedModel = elements.modelSelect.value; // Wavenet, Neural2, Studio, Polyglot, or empty for Standard
+  
+  const filtered = allVoices.filter(v => {
+    const matchesLang = v.languageCodes.some(lc => lc.startsWith(selectedLang.split('-')[0]));
+    
+    let matchesModel = false;
+    if (selectedModel === '') {
+      // Standard voices usually don't have these keywords in their name
+      matchesModel = !['Wavenet', 'Neural2', 'Studio', 'Polyglot'].some(m => v.name.includes(m));
+    } else {
+      matchesModel = v.name.includes(selectedModel);
+    }
+    
+    return matchesLang && matchesModel;
+  });
+
+  chrome.storage.local.get(['preferredVoice'], (data) => {
+    const preferredVoice = data.preferredVoice;
+    elements.voiceSelect.innerHTML = filtered
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(v => {
+        const selected = v.name === preferredVoice ? 'selected' : '';
+        const type = v.name.includes('Wavenet') ? 'Wavenet' : 
+                     v.name.includes('Neural2') ? 'Neural2' :
+                     v.name.includes('Studio') ? 'Studio' :
+                     v.name.includes('Polyglot') ? 'Polyglot' : 'Standard';
+        return `<option value="${v.name}" data-lang="${v.languageCodes[0]}" ${selected}>${v.name} (${v.ssmlGender}) - ${type}</option>`;
+      })
+      .join('');
+      
+    if (filtered.length === 0) {
+      elements.voiceSelect.innerHTML = '<option value="">No voices found for this model/lang</option>';
+    }
+  });
 }
 
 async function playTTS() {
@@ -334,8 +388,15 @@ async function stopRecording() {
       elements.audioPlayback.src = res.dataUrl;
       elements.recordingStatus.textContent = 'Ready';
       showMessage('Stopped');
+    } else {
+      throw new Error(res?.error || 'Failed to stop recording');
     }
-  } catch (error) { showMessage('Error: ' + error.message); } finally { isStopping = false; }
+  } catch (error) { 
+    showMessage('Error: ' + error.message); 
+    elements.recordingStatus.textContent = 'Ready';
+  } finally { 
+    isStopping = false; 
+  }
 }
 
 async function convertSTT() {
