@@ -221,7 +221,12 @@ function renderVoices() {
   const selectedModel = elements.modelSelect.value; // Wavenet, Neural2, Studio, Polyglot, or empty for Standard
   
   const filtered = allVoices.filter(v => {
-    const matchesLang = v.languageCodes.some(lc => lc.startsWith(selectedLang.split('-')[0]));
+    // Check for language match
+    // Standardize: if user selects zh-CN, also match cmn-CN
+    let matchesLang = v.languageCodes.some(lc => lc.startsWith(selectedLang.split('-')[0]));
+    if (selectedLang.startsWith('zh')) {
+      matchesLang = matchesLang || v.languageCodes.some(lc => lc.startsWith('cmn'));
+    }
     
     let matchesModel = false;
     if (selectedModel === '') {
@@ -244,7 +249,10 @@ function renderVoices() {
                      v.name.includes('Neural2') ? 'Neural2' :
                      v.name.includes('Studio') ? 'Studio' :
                      v.name.includes('Polyglot') ? 'Polyglot' : 'Standard';
-        return `<option value="${v.name}" data-lang="${v.languageCodes[0]}" ${selected}>${v.name} (${v.ssmlGender}) - ${type}</option>`;
+        
+        // Display info including Natural Sample Rate as referenced in issue
+        const displayName = `${v.name} (${v.ssmlGender}, ${v.naturalSampleRateHertz}Hz)`;
+        return `<option value="${v.name}" data-lang="${v.languageCodes[0]}" ${selected}>${displayName}</option>`;
       })
       .join('');
       

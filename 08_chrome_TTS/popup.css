@@ -1,3 +1,7 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   --primary-color: #4285f4;
   --primary-hover: #357ae8;
@@ -8,7 +12,12 @@
 }
 
 body {
-  width: 400px;
+  min-width: 450px;
+  width: fit-content;
+  max-width: 800px;
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background-color: var(--bg-color);
@@ -63,13 +72,13 @@ main {
 
 .controls-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
 .sliders {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   background: #fff;
   padding: 10px;
