@@ -33,6 +33,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     stopRecording(sendResponse);
     return true;
   }
+
+  if (message.type === 'get-status') {
+    sendResponse({ 
+      isRecording: !!(mediaRecorder && mediaRecorder.state !== 'inactive'),
+      isPlaying: !!(currentAudio && !currentAudio.paused)
+    });
+    return;
+  }
 });
 
 function stopAllAudio() {
@@ -114,6 +122,10 @@ async function startRecording(streamId, sendResponse) {
     };
 
     mediaRecorder.onstop = () => {
+      if (mediaRecorder._safetyTimer) {
+        clearTimeout(mediaRecorder._safetyTimer);
+        mediaRecorder._safetyTimer = null;
+      }
       // 1. Clean up resources
       if (stream) {
         stream.getTracks().forEach(t => t.stop());
@@ -156,6 +168,15 @@ async function startRecording(streamId, sendResponse) {
     };
 
     mediaRecorder.start();
+    
+    // Safety: prevent infinite recording if popup closes
+    // Note: Google Cloud STT synchronous recognition has a 60s limit
+    mediaRecorder._safetyTimer = setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+    }, 60000);
+
     sendResponse({ success: true });
   } catch (err) {
     sendResponse({ success: false, error: err.message });

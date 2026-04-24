@@ -38,6 +38,7 @@ const elements = {
 let apiKey = '';
 let allVoices = [];
 let isRecording = false;
+let isConverting = false;
 let isStopping = false;
 let audioDataUrl = null;
 let offscreenReadyPromise = null;
@@ -62,8 +63,10 @@ async function setupOffscreen(reasons, justification) {
       offscreenReadyPromise = new Promise((res, rej) => {
         resolveOffscreenReady = res;
         setTimeout(() => {
-          resolveOffscreenReady = null;
-          rej(new Error('Offscreen Document Timeout'));
+          if (resolveOffscreenReady) {
+            resolveOffscreenReady = null;
+            rej(new Error('Offscreen Document Timeout'));
+          }
         }, 5000);
       });
       await chrome.offscreen.createDocument({
@@ -85,18 +88,19 @@ async function setupOffscreen(reasons, justification) {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
-  const data = await chrome.storage.local.get([
-    'apiKey', 'rate', 'pitch', 'effects', 'sttLang'
-  ]);
-  
-  if (data.apiKey) {
-    apiKey = data.apiKey;
-    elements.apiKey.value = apiKey;
-    loadVoices();
-  } else {
-    showSection('settings');
-    showMessage('Please set your API Key.');
-  }
+  try {
+    const data = await chrome.storage.local.get([
+      'apiKey', 'rate', 'pitch', 'effects', 'sttLang', 'ttsLang', 'ttsModel'
+    ]);
+    
+    if (data.apiKey) {
+      apiKey = data.apiKey;
+      elements.apiKey.value = apiKey;
+      loadVoices();
+    } else {
+      showSection('settings');
+      showMessage('Please set your API Key.');
+    }
 
   // Restore preferences
   if (data.rate) {
@@ -154,6 +158,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   elements.btnSttConvert.addEventListener('click', convertSTT);
   elements.btnCopyStt.addEventListener('click', copySTT);
   elements.btnReuseStt.addEventListener('click', reuseSTT);
+
+  // Sync state with offscreen if it exists
+  if (await chrome.offscreen.hasDocument()) {
+    const status = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'get-status' });
+    if (status?.isRecording) {
+      isRecording = true;
+      elements.btnRecord.classList.add('recording');
+      elements.recordingStatus.textContent = 'Recording (Recovered)...';
+      elements.btnSttConvert.disabled = true;
+    }
+  }
+  } catch (err) {
+
+    console.error('Initialization error:', err);
+    showMessage('Error initializing extension.');
+  }
 });
 
 function showSection(name) {
@@ -167,7 +187,7 @@ let messageTimer = null;
 function showMessage(msg, duration = 3000) {
   if (messageTimer) clearTimeout(messageTimer);
   elements.statusMessage.textContent = msg;
-  if (duration) {
+  if (duration > 0) {
     messageTimer = setTimeout(() => {
       elements.statusMessage.textContent = '';
       messageTimer = null;
@@ -210,7 +230,9 @@ async function loadVoices() {
       renderVoices();
     }
   } catch (error) {
+    console.error('Failed to load voices:', error);
     elements.voiceSelect.innerHTML = '<option value="">Error loading voices</option>';
+    showMessage('Error: Failed to fetch voices. Check your API Key and connection.');
   } finally {
     elements.voiceSelect.disabled = false;
   }
@@ -278,7 +300,7 @@ async function playTTS() {
   }
 
   elements.btnTtsPlay.disabled = true;
-  showMessage('Synthesizing...');
+  showMessage('Synthesizing (Google Cloud TTS)...', 0);
 
   try {
     const rate = Math.max(0.25, Math.min(4.0, parseFloat(elements.inputRate.value) || 1.0));
@@ -331,18 +353,20 @@ async function stopTTS() {
 }
 
 function downloadTTS() {
-  if (audioDataUrl) {
+  if (audioDataUrl && audioDataUrl.startsWith('data:audio/')) {
     const link = document.createElement('a');
     link.href = audioDataUrl;
     link.download = `tts_${Date.now()}.mp3`;
     link.click();
+  } else {
+    showMessage('No audio available for download.');
   }
 }
 
 let isStartingRecording = false;
 
 async function startRecording() {
-  if (isRecording || isStartingRecording || !apiKey) return;
+  if (isRecording || isStartingRecording || isConverting || !apiKey) return;
   isStartingRecording = true;
   
   try {
@@ -363,6 +387,7 @@ async function startRecording() {
       isRecording = true;
       elements.btnRecord.classList.add('recording');
       elements.recordingStatus.textContent = 'Recording...';
+      elements.btnSttConvert.disabled = true;
       showMessage('Recording...');
     } else {
       throw new Error(res?.error || 'Failed to start recording');
@@ -395,6 +420,7 @@ async function stopRecording() {
     if (res?.success) {
       elements.audioPlayback.src = res.dataUrl;
       elements.recordingStatus.textContent = 'Ready';
+      elements.btnSttConvert.disabled = false;
       showMessage('Stopped');
     } else {
       throw new Error(res?.error || 'Failed to stop recording');
@@ -408,27 +434,38 @@ async function stopRecording() {
 }
 
 async function convertSTT() {
+  if (isConverting || isRecording) return;
+
   const url = elements.audioPlayback.src;
   if (!url || !apiKey || !url.startsWith('data:audio/')) {
       showMessage('No valid recording.');
       return;
   }
+
+  isConverting = true;
   elements.btnSttConvert.disabled = true;
-  showMessage('Converting...');
+  elements.btnRecord.disabled = true;
+  
+  showMessage('Preparing audio data...', 0);
+  
   try {
+    const audioContent = url.split(',')[1];
+    
+    showMessage('Connecting to Google Cloud Speech-to-Text...', 0);
+    
     const response = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`, {
       method: 'POST',
       body: JSON.stringify({
         config: {
           encoding: 'WEBM_OPUS',
-          sampleRateHertz: 48000,
-          audioChannelCount: 2,
           enableAutomaticPunctuation: true,
           languageCode: elements.sttLangSelect.value,
         },
-        audio: { content: url.split(',')[1] }
+        audio: { content: audioContent }
       })
     });
+
+    showMessage('Processing transcription...', 0);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -438,9 +475,17 @@ async function convertSTT() {
     const data = await response.json();
     if (data.results?.length > 0) {
       elements.sttResult.value = data.results.map(r => r.alternatives[0].transcript).join('\n');
-      showMessage('Done!');
-    } else showMessage('No speech recognized.');
-  } catch (error) { showMessage('Error: ' + error.message); } finally { elements.btnSttConvert.disabled = false; }
+      showMessage('Conversion complete!', 3000);
+    } else {
+      showMessage('No speech recognized.', 3000);
+    }
+  } catch (error) { 
+    showMessage('Error: ' + error.message, 5000); 
+  } finally { 
+    isConverting = false;
+    elements.btnSttConvert.disabled = false;
+    elements.btnRecord.disabled = false;
+  }
 }
 
 async function copySTT() {

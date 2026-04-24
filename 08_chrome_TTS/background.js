@@ -15,9 +15,23 @@ let offscreenReadyPromise = null;
 let resolveOffscreenReady = null;
 let offscreenCreating = null;
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener(async (message) => {
   if (message.type === 'audio-finished' && message.source === 'background') {
-    closeOffscreenDocument();
+    // Check if offscreen is still doing something else (like recording) before closing
+    if (await chrome.offscreen.hasDocument()) {
+      try {
+        const status = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'get-status' });
+        if (!status?.isRecording) {
+          await chrome.offscreen.closeDocument();
+          offscreenCreating = null;
+          resolveOffscreenReady = null;
+        }
+      } catch (e) {
+        // If message fails, document might be gone already or error occurred, just cleanup
+        offscreenCreating = null;
+        resolveOffscreenReady = null;
+      }
+    }
   } else if (message.type === 'offscreen-ready' && message.target === 'background') {
     if (resolveOffscreenReady) resolveOffscreenReady();
   }
@@ -108,8 +122,13 @@ async function closeOffscreenDocument() {
 }
 
 async function playAudioOffscreen(dataUrl) {
-  await setupOffscreen(['AUDIO_PLAYBACK', 'USER_MEDIA'], 'Background TTS Playback');
-  chrome.runtime.sendMessage({ target: 'offscreen', type: 'play-audio', dataUrl: dataUrl, source: 'background' });
+  try {
+    await setupOffscreen(['AUDIO_PLAYBACK', 'USER_MEDIA'], 'Background TTS Playback');
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'play-audio', dataUrl: dataUrl, source: 'background' });
+  } catch (err) {
+    console.error('Offscreen playback error:', err);
+    showNotification('Playback Error', err.message);
+  }
 }
 
 async function setupOffscreen(reasons, justification) {
