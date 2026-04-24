@@ -31,10 +31,42 @@ int main() {
     string line;
     while (getline(cin, line)) {
         if (line.empty()) continue;
+        json id = nullptr;
         try {
-            json req = json::parse(line);
+            json req;
+            try {
+                req = json::parse(line);
+            } catch (const json::parse_error& e) {
+                json resp = {
+                    {"jsonrpc", "2.0"},
+                    {"id", nullptr},
+                    {"error", {
+                        {"code", -32700},
+                        {"message", "Parse error"}
+                    }}
+                };
+                send_response(resp);
+                continue;
+            }
+            
+            if (req.contains("id")) {
+                id = req["id"];
+            }
+            
+            if (!req.contains("method") || !req["method"].is_string()) {
+                json resp = {
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"error", {
+                        {"code", -32600},
+                        {"message", "Invalid Request"}
+                    }}
+                };
+                send_response(resp);
+                continue;
+            }
+            
             string method = req["method"];
-            json id = req.contains("id") ? req["id"] : nullptr;
 
             if (method == "initialize") {
                 json resp = {
@@ -73,6 +105,19 @@ int main() {
                 send_response(resp);
             }
             else if (method == "tools/call") {
+                if (!req.contains("params") || !req["params"].is_object() || !req.at("params").contains("name") || !req["params"]["name"].is_string()) {
+                    json resp = {
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"error", {
+                            {"code", -32602},
+                            {"message", "Invalid params"}
+                        }}
+                    };
+                    send_response(resp);
+                    continue;
+                }
+                
                 string tool_name = req["params"]["name"];
                 json result_content;
                 
@@ -109,9 +154,29 @@ int main() {
                 };
                 send_response(resp);
             }
+            else {
+                json resp = {
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"error", {
+                        {"code", -32601},
+                        {"message", "Method not found"}
+                    }}
+                };
+                send_response(resp);
+            }
         } catch (const exception& e) {
             // 错误处理，输出到 stderr 以免干扰 stdout 的 JSON 流
             cerr << "Error: " << e.what() << endl;
+            json resp = {
+                {"jsonrpc", "2.0"},
+                {"id", id},
+                {"error", {
+                    {"code", -32603},
+                    {"message", e.what()}
+                }}
+            };
+            send_response(resp);
         }
     }
     return 0;

@@ -4,10 +4,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
 
 const server = new Server(
   {
@@ -43,9 +43,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "get_disk_usage") {
-    const path = request.params.arguments?.path || "/";
+    const pathArg = request.params.arguments?.path;
+    const path = typeof pathArg === "string" ? pathArg : "/";
     try {
-      const { stdout } = await execPromise(`df -h ${path}`);
+      const { stdout } = await execFilePromise("df", ["-h", "--", path], { timeout: 10000 });
       return {
         content: [
           {

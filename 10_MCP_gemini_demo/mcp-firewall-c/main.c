@@ -40,7 +40,17 @@ int main() {
     char line[4096];
     while (fgets(line, sizeof(line), stdin)) {
         cJSON* req = cJSON_Parse(line);
-        if (!req) continue;
+        if (!req) {
+            cJSON* resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "jsonrpc", "2.0");
+            cJSON* error = cJSON_CreateObject();
+            cJSON_AddNumberToObject(error, "code", -32700);
+            cJSON_AddStringToObject(error, "message", "Parse error");
+            cJSON_AddItemToObject(resp, "error", error);
+            send_response(resp);
+            cJSON_Delete(resp);
+            continue;
+        }
 
         const cJSON* method = cJSON_GetObjectItemCaseSensitive(req, "method");
         const cJSON* id = cJSON_GetObjectItemCaseSensitive(req, "id");
@@ -97,6 +107,20 @@ int main() {
                 const cJSON* params = cJSON_GetObjectItemCaseSensitive(req, "params");
                 const cJSON* tool_name = cJSON_GetObjectItemCaseSensitive(params, "name");
                 
+                if (!params || !cJSON_IsObject(params) || !tool_name || !cJSON_IsString(tool_name)) {
+                    cJSON* resp = cJSON_CreateObject();
+                    cJSON_AddStringToObject(resp, "jsonrpc", "2.0");
+                    if (id) cJSON_AddItemToObject(resp, "id", cJSON_Duplicate(id, 1));
+                    cJSON* error = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(error, "code", -32602);
+                    cJSON_AddStringToObject(error, "message", "Invalid params");
+                    cJSON_AddItemToObject(resp, "error", error);
+                    send_response(resp);
+                    cJSON_Delete(resp);
+                    cJSON_Delete(req);
+                    continue;
+                }
+
                 cJSON* resp = cJSON_CreateObject();
                 cJSON_AddStringToObject(resp, "jsonrpc", "2.0");
                 if (id) {
@@ -104,15 +128,15 @@ int main() {
                 }
                 
                 cJSON* result = cJSON_CreateObject();
-                if (cJSON_IsString(tool_name) && strcmp(tool_name->valuestring, "get_firewall_status") == 0) {
+                if (strcmp(tool_name->valuestring, "get_firewall_status") == 0) {
                     char* output = exec_command("sudo ufw status 2>&1");
                     cJSON* content_array = cJSON_CreateArray();
                     cJSON* content_obj = cJSON_CreateObject();
                     cJSON_AddStringToObject(content_obj, "type", "text");
-                    cJSON_AddStringToObject(content_obj, "text", output);
+                    cJSON_AddStringToObject(content_obj, "text", output ? output : "Internal Error: Command execution failed or Out of Memory");
                     cJSON_AddItemToArray(content_array, content_obj);
                     cJSON_AddItemToObject(result, "content", content_array);
-                    free(output);
+                    if (output) free(output);
                 } else {
                     cJSON_AddBoolToObject(result, "isError", 1);
                     cJSON* content_array = cJSON_CreateArray();
@@ -125,7 +149,31 @@ int main() {
                 cJSON_AddItemToObject(resp, "result", result);
                 send_response(resp);
                 cJSON_Delete(resp);
+            } else {
+                cJSON* resp = cJSON_CreateObject();
+                cJSON_AddStringToObject(resp, "jsonrpc", "2.0");
+                if (id) {
+                    cJSON_AddItemToObject(resp, "id", cJSON_Duplicate(id, 1));
+                }
+                cJSON* error = cJSON_CreateObject();
+                cJSON_AddNumberToObject(error, "code", -32601);
+                cJSON_AddStringToObject(error, "message", "Method not found");
+                cJSON_AddItemToObject(resp, "error", error);
+                send_response(resp);
+                cJSON_Delete(resp);
             }
+        } else {
+            cJSON* resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "jsonrpc", "2.0");
+            if (id) {
+                cJSON_AddItemToObject(resp, "id", cJSON_Duplicate(id, 1));
+            }
+            cJSON* error = cJSON_CreateObject();
+            cJSON_AddNumberToObject(error, "code", -32600);
+            cJSON_AddStringToObject(error, "message", "Invalid Request");
+            cJSON_AddItemToObject(resp, "error", error);
+            send_response(resp);
+            cJSON_Delete(resp);
         }
         cJSON_Delete(req);
     }
