@@ -21,6 +21,7 @@ class DouyuDanmakuGUI:
         self.room_id = tk.StringVar(value="9999")
         self.ws = None
         self.is_connected = False
+        self.stop_event = threading.Event()
         
         # Room history
         self.history_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "douyu_rooms.json")
@@ -208,6 +209,7 @@ class DouyuDanmakuGUI:
 
     def disconnect(self):
         self.is_connected = False
+        self.stop_event.set()
         if self.ws:
             self.ws.close()
         self.btn_connect.configure(text="开始连接", bg=self.accent_color, activebackground="#008f95")
@@ -249,9 +251,6 @@ class DouyuDanmakuGUI:
         ]
         
         context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        context.set_ciphers('DEFAULT')
         
         def on_open(ws):
             self.msg_queue.put(("status", ("已连接", "#4e9f3d")))
@@ -266,8 +265,9 @@ class DouyuDanmakuGUI:
             
             # Keepalive heartbeat
             def heartbeat():
-                while self.is_connected:
-                    time.sleep(45)
+                while self.is_connected and not self.stop_event.is_set():
+                    if self.stop_event.wait(45):
+                        break
                     try:
                         ws.send(self.encode_packet(689, "type@=mrkl/"), opcode=websocket.ABNF.OPCODE_BINARY)
                     except Exception:
@@ -372,6 +372,11 @@ class DouyuDanmakuGUI:
                     sn, gn, dn = msg_data
                     self.text_area.insert(tk.END, f"[广播] {sn} 赠送给 {dn} 一个大大的 【{gn}】！\n", "global")
                 
+                # Limit maximum lines to prevent memory leak and lag
+                line_count = int(self.text_area.index('end-1c').split('.')[0])
+                if line_count > 500:
+                    self.text_area.delete('1.0', f'{line_count - 450}.0')
+                
                 self.text_area.see(tk.END)
                 self.text_area.configure(state=tk.DISABLED)
                 
@@ -467,6 +472,7 @@ class DouyuDanmakuGUI:
 
     def on_close(self):
         self.is_connected = False
+        self.stop_event.set()
         if self.ws:
             self.ws.close()
         self.root.destroy()

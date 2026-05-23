@@ -126,9 +126,7 @@ class DouyuDanmakuClient:
         ]
         
         context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        context.set_ciphers('DEFAULT')
+        # Secure default context used instead of disabling checks
         
         self.ws = websocket.WebSocketApp(
             self.url,
