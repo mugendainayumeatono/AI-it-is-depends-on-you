@@ -1,0 +1,356 @@
+This note is high-level documentation for the core parts of this template project.
+All events in this project are commented, so you can open any event and read the comments to understand what it does, and how it works.
+
+# Animation Curves
+
+There is 1 Animation Curves witin this project:
+
+ac_card_flip
+	Contains curve used within cards draw event to scale their width and height values.
+
+
+
+# Fonts
+
+There is 1 font witin this project:
+
+fnt_righteous
+	Only font used within the project, it is used for the moves and time information on HUD.
+
+
+
+# OBJECTS
+
+There are 32 Objects witin this project:
+
+Bases
+	obj_base_parent
+		Parent object used for the base of stacks cards snap into.
+		Create				Create event for object declares the variables for the desk to be placed into it as well as setting the info for numbers and suits it needs.
+		-><- obj_card		Collision effect for checking when particle effects should play.
+		User Event 0		Event called when moving cards in and out of the stack.
+	
+	obj_club_base
+		Child object of obj_base_parent for club suit.
+		Create				Sets the approprite suit and particle effects.
+		
+	obj_diamonds_base
+		Child object of obj_base_parent for diamond suit.
+		Create				Sets the approprite suit and particle effects.
+		
+	obj_hearts_base
+		Child object of obj_base_parent for heart suit.
+		Create				Sets the approprite suit and particle effects.
+		
+	obj_spades_base
+		Child object of obj_base_parent for spade suit.
+		Create				Sets the approprite suit and particle effects.
+	
+Buttons
+	obj_1_card_draw
+		Button used in the pause menu to set the game to 1 card drawn mode.
+		Create				Sets the button sprites.
+		Step				Updated the state if the option is aready chosen.
+		Left Released		Changes the draw mode and restarts the room.
+	
+	obj_3_card_draw
+		Button used in the pause menu to set the game to 3 cards drawn mode.
+		Create				Sets the button sprites.
+		Step				Updated the state if the option is aready chosen.
+		Left Released		Changes the draw mode and restarts the room.
+		
+	obj_exit_button_title
+		Button used in the splash screen to exit the game.
+		Create				Sets the button sprites.
+		Left Released		Ends the game when successful.
+		
+	obj_home_button
+		Button used in menus to return to the spalsh screen
+		Create				Sets the button sprites.
+		
+	obj_lose_button
+		Button that appears when no more moves are available and ends the current game.
+		Create				Sets the button sprites.
+		Step				Updated the state if the option is aready chosen.
+		Left Released		Sets the loser flag.
+		
+	obj_mini_home_button
+		Smaller button used in menus to return player to spalsh screen.
+		Create				Sets the button sprites.
+		Left Released		Send the player back to the spash screen.
+		
+	obj_mini_play_button
+		Smaller button used in menus to unpause the game.
+		Create				Sets the button sprites.
+		Left Released		Stops the game from being paused.
+		
+	obj_mini_replay_button
+		Smaller button used in menus to restart the game.
+		Create				Sets the button sprites.
+		Left Released		Restarts the room on successful clicks.
+		
+	obj_mute_button
+		Mute button used to mute audio.
+			Create				Sets the button sprites.
+			Left Released		Toggles the games audio.
+		
+	obj_pause
+		Pause button used for the game.
+		Create				Sets the button sprites.
+		Draw				Only draws the original sprite when the game is paused otherwise has dynamic visuals.
+		Left Released		Pauses the game.
+		
+	obj_play_button_title
+		Play button used in the splash screen to start the game.
+		Create				Sets the button sprites and plays the game startup music.
+		Destroy				Stops the main menu music.
+		Step				Updated the state if the option is aready chosen.
+		Left Released		Takes the player into the game.
+		
+	obj_replay_button
+		Button used in menus to replay a game.
+		Create				Sets the button sprites.
+		
+	obj_solve
+		Solve button that apears when all the cards are in stacks and can be places when the deck is empty and all cards revealed.
+		Create				Sets the button sprites.
+		Step				Updated the state if the option is aready chosen.
+		Left Released		Sets the automatic solve flag to true.
+
+Managers
+	obj_mouse_manager
+		Object that handles moved cards from the mouse.
+		Create				Sets up the variables for the card to be saved to as well as declaring a look at function for when cards should be highlighted.
+			- update_looking_at()		Function for when card should be highlighted but no card has been selected.
+		Step				Moves the grabed card player has selected.
+		
+	obj_move_and_timer_manager
+		Object that handles ingame moves and the timer counters.
+		Create				Sets up the timer variables.
+			- solve()					Function used when games auto solve flag has been called.
+		Update				Updates the timers and checks for win condition.
+		End Step			Checks for auto complete condition.
+		Draw				draws the HUD information on moves and time.
+			
+	obj_room_manager
+		Handles instances and menus created.
+		Create				Sets up global variables and layers.
+			- state_paused()			Function called when game is paused to create pause menu.
+			- state_unpaused()			Function called when pause menu is destroyed.
+			- state_winnner()			Function called when a win screen needs to be created.
+			- state_loser()				Function called when lose screen is created.
+		Step				Handles pause events as well as toggling fullscreen mode.
+	
+Menu
+	obj_menu_clubs_jack
+		Spash screen menu card.
+	obj_menu_diamonds_four
+		Spash screen menu card.
+	obj_menu_diamonds_king
+		Spash screen menu card.
+	obj_menu_hearts_ten
+		Spash screen menu card.
+	obj_menu_spades_queen
+		Spash screen menu card.
+	
+Parent Objects
+	obj_button_parent
+		Parent object for all buttons
+		Create				Sets the sprites needed for mouse states as well as selected states.
+		Step				Uses mouse coordinated to check and change highlighted state.
+		Draw				Draws the button in the correct sprite based on its state.
+		
+	obj_cards_parent
+		Parent object for the base game cards.
+		Create				Sets the card properties if can be grabbed and the scale of highlights.
+		Step				Checks if the card has been highlighted over by mouse.
+		Draw				Draws the card in highlighted mode if needed.
+		Left Pressed		Checks for the players mouse to be over and assigns the card as grabbed in the mouse manager.
+		
+	obj_menu_parent
+		Parent object for the splash screen cards.
+		Create				Card border setup.
+		Draw				Draws card in highlight mode if needed.
+		Left Pressed		Exits event.
+
+obj_card
+	Card object used for the in game cards created by the deck.
+	Create				Defines the card.
+		- state_card()				Card lerps position if needed.
+		- state_destroy()			Card destroys itself.
+	Step				Controls the cards current state.
+	Draw				Draws the card at correct face and animated scale if needed.
+	Left Released		Checks if conditions of placement are met and will either move or reset card as needed.
+		
+obj_deck
+	Card spawner for the main game.
+	Create				Creates the deck of card and sets up functions for handling them.
+		- card(_suit, _number)			Constructor used to set up a card.
+				_suit					Suit card will be.
+				_number					Number card will be.
+		- check_for_impossible_game()	Function for checking if a game is impossible.
+	Step					Controls what cards are grabbable.
+	Draw					Draws the deck when possible.
+	Left Pressed			Spawns cards when they exist in deck or resets deck if possible.
+
+obj_zone
+	Zones card stacks can attach into to be played.
+	Create				Variables the cards scale can be before they will need to adjust.
+	Draw				Draws the zones for king placements.
+	User Event 0		User event for when card is passed onto the stack.
+
+
+
+# Particle Systems
+
+There are 13 Particle Systems used within this project:
+
+ps_all_cards_in_deck
+ps_card_in_club_pile
+ps_card_in_diamond_pile
+ps_card_in_heart_pile
+ps_card_in_spade_pile
+ps_winning_confetti
+ps_winning_sparkle
+ps_auto_complete
+ps_card_highlight
+ps_card_placed
+ps_sparkle
+ps_suits_placed_on_deck
+ps_winning_sparkle_passive
+
+
+
+# ROOMS
+
+There are 2 Rooms within this project:
+
+rm_main_menu
+	Main menu room for games splash screen. (Set to first room)
+	
+	Layer				Layer Desciption.
+	Cards				Hidden instance layer that is revealed after card fan sequence finishes playing that contrains highlightable cards.
+	Assets				Asset layer for holding the menus title and playing the card fan sequence.
+	Buttons				Instance layers for button objects and the mouse manager object.
+	PFX					Assets layer for sparkle background particle effects layer.
+	Background			Static background image for menu.
+	
+rm_play
+	Main room for gameplay
+	
+	Layer				Layer Desciption.
+	Win_Instances		Empty instance layer for the win and lose screen elements to be added to.
+	Pause_Instances		Empty instance layer for the pause menu elements to be added to.
+	Pause_screen		Hidden assets layer for sparkle particle effect and paused background.
+	Win_screen			Hidden assets layer for win effect particle system and background.
+	Instances			Main instance layer for all the stack (zones) deck and managers.
+	Bases				Instance layer for the suit piles at top of screen.
+	Play_Screen			Asset layer for the card pile background.
+	Background			Static background sprite for gameplay.
+
+
+
+# Scripts
+
+There are 2 Scripts within this project:
+
+scr_menu_card_swap
+	This script is used to swap the main menu cards from the fan out sequence to the displayed interactable card objects.
+	
+		menu_card_swap()
+				This is the function that makes the instance layer with the cards on visible for the main menu.
+				
+scr_transfer_stack
+	This script is used to transfer stacks of cards from one stack to another.
+	
+		transfer_stack(_stack_previous, _stack_new, _id)
+				This is used to transfer stacks of cards from one zone to another.
+					
+					Parameter			Description
+					_stack_previous		Instance id of previous zone cards are coming from.
+					_stack_new			Instance id of new zone cards are going to.
+					_id					Instance id of card player has selected. (Parent card if in a stack)
+
+
+
+# SEQUENCES
+
+There are 8 sequences within this project:
+
+seq_you_lose
+	Sequence for the lose screen menu to appear.
+seq_you_lose_button_pop_up
+	Sequence for the lose button popping up when players have no more possible moves.
+seq_pause_pop_up
+	Pause screen popup sequence.
+seq_card_fan
+	Sequence used in splash screen for the card fan out.
+seq_auto_complete_pop_up
+	Sequence for auto complete button to popup.
+seq_you_win_pop_up
+	Win screen popup screen sequence.
+seq_3_card_draw
+	Sequence used when revealing 3 cards from deck.
+seq_card_reveal
+	Sequence used when revealing 1 card from bottom of stack.
+		
+
+
+# Sounds
+
+There are 17 sound files within this project:
+
+Because of the nature of the game most of the sounds are UI and menu based with the exception being the main menu and game music.
+		
+		
+		
+# SPRITES
+
+There are 146 sprites within this project:
+
+They are organised by their use.
+	Game Screen
+		Cards
+			Clubs
+				- All the club face cards
+			Diamonds
+				- All the diamond face cards
+			Hearts
+				- All the heart faced cards
+			Spades
+				- All the spade faced cards
+		- All the "base" sprites for where cards are placed.
+		- Buttons for user inputs in their different states.
+		- Card back sprite.
+		- Level background.
+	Lose Screen
+		- Lose screen menu assets.
+	Main Screen
+		- Main menu splash screen assets including larger card sprites for fan out sequence.
+	Particle Sprites
+		- Custom sprites used in the particle systems for visual effects.
+	Pause Screen
+		- Pause screen assets and buttons.
+	Splash Screen
+		- Background and main logo for splash screen.
+	UI
+		UI Pause Screen
+			- Sprites for pause menu buttons and headings.
+		UI Title
+			- Button sprites for the splash screen menu.
+		UI Win Screen
+			- Sprites used for the win screen menu
+
+
+
+~~ Possible Edits! ~~
+
+If you want to edit parts of this project to make it more unique and personal feel free to!
+
+Why not try:
+	- Adding new challenges to the game like a time limit or move limit.
+	- Changing the card assets used in this to give the game your own style.
+	- Creating a differnt card game with a different set of rules.
+	- Or use this as an idea of how to make your own game from scratch!
+	
+Don't forget to share what you make to gx.games so others can play your game too!
