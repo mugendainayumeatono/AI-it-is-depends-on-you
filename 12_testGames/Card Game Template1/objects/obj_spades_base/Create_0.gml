@@ -5,5 +5,4 @@ event_inherited();
 // Set what suit we need.
 suit_needed = 1;
 
-// Set what PFX we need.
-pfx = ps_card_in_spade_pile;
+pfx = ps_winning_sparkle;

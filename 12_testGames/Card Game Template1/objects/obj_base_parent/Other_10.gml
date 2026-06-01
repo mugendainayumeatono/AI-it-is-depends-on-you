@@ -42,5 +42,5 @@ number_needed = _cur_len;
 // Update what PFX we use when a card is added here.
 if (number_needed > 11)
 {
-	pfx = ps_all_cards_in_deck;
+pfx = ps_auto_complete;
 }
