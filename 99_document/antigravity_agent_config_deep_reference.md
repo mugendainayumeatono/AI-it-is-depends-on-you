@@ -91,8 +91,8 @@ Antigravity 的定制化系统（Customization System）由 **5 类核心资产*
 | **`model`** | `string` | 否 | `inherit` | 模型选择策略：<br>• `inherit`（或留空）：继承当前会话/父 Agent 的模型<br>• `flash`：快速高吞吐模型<br>• `flash_lite`（或 `flash-lite`）：极速轻量模型<br>• `pro`：深度推理旗舰模型<br>• 具体模型名/别名：如 `sonnet`、`opus`、`gemini-2.5-pro`、`gemini-3.1-pro-high` |
 | **`mainAgent`** | `boolean` | 否 | `false` | 是否允许作为**顶层主 Agent** 运行（通过 `agy -a <name>` 启动或在交互界面通过 `/agent` 切换）。 |
 | **`subagent`** | `boolean` | 否 | `true` | 是否允许作为**子 Agent** 被其他 Agent 通过 `invoke_subagent` 调用。若设为 `false`，则不会注册到父 Agent 的可用子代理列表中。 |
-| **`allowAllTools`** | `boolean` | 否 | `false` | **【关键底层字段】是否授予全部内置工具权限**：<br>• 当设为 `true` 且未指定 `tools` 时，Agent 获得与默认主 Agent 完全相同的全部 29 个内置工具（含读写、终端、子代理编排、任务调度等），且不会裁剪系统提示词。<br>• 当设为 `false`（默认）且未指定 `tools` 时，自动降级为仅允许 6 个只读工具。 |
-| **`tools`** | `string[]` | 否 | 见说明 | 显式允许的工具白名单（支持**类别别名**与**具体工具名**）。注意：一旦指定非空 `tools` 列表，系统仅开放列表中包含的工具。若需开放所有工具，请省略 `tools` 并设置 `allowAllTools: true`。 |
+| **`excludeDefaultComponents`** | `boolean` | 否 | `false` | 是否排除系统默认组件（内置提示词段落 `identity`/`subagents`/`communication_style` 等、默认规则、技能与默认只读工具集）。注意：YAML Struct 中**不存在** `allowAllTools` 字段（结构体偏移 `0x30` 实际为 `excludeDefaultComponents`）。 |
+| **`tools`** | `string[]` | 否 | 6 个只读/基础工具 | **【关键底层字段】显式允许的工具白名单**：<br>• 若**省略 `tools`**（且 `excludeDefaultComponents: false`），`ParseAgentScriptItemFromMarkdown`（`0x7baa79e`）会自动回退为 6 个基础只读工具（`send_message`、`view_file`、`read_url_content`、`search_web`、`schedule`、`generate_image`），并因缺少 `invoke_subagent` 而剥离 `subagents` 系统提示词与子代理工具！<br>• **若需授予自定义 Agent 完整工具权限，必须在 `tools:` 中显式列出所需工具名**。 |
 | **`workspace`** | `string` | 否 | `inherit` | 作为子 Agent 运行时的工作区隔离模式：<br>• `inherit`：与父 Agent 共享同一物理目录<br>• `branch`：创建独立的克隆/分支工作区，文件修改与父工作区完全隔离<br>• `share`：基于 Git Worktree / Mercurial Share 共享底层仓库存储，但拥有独立工作树与分支 |
 | **`inheritCustomizations`** | `boolean` | 否 | `false` | 是否继承全局、工作区及已启用插件中的 Rules 和 Skills：<br>• `true`：继承环境中的所有启用状态的 Rules 与 Skills，并在此基础上叠加 `rules` 与 `skills` 字段中显式声明的项。<br>• `false`：仅加载该 Agent 在 `rules` 和 `skills` 中显式列出的项。 |
 | **`inheritMcp`** | `boolean` | 否 | `false` | 是否继承父环境/全局配置的全部 MCP 服务器与工具：<br>• `true`：继承全部已配置的 MCP Server。<br>• `false`：仅可使用 `mcpServers` 字段中显式声明的 MCP Server。 |
@@ -123,29 +123,28 @@ Antigravity 的定制化系统（Customization System）由 **5 类核心资产*
 
 ---
 
-### 3.2 工具权限控制机制（`allowAllTools` vs `tools`）
+### 3.2 工具权限控制机制（`tools` 显式白名单 vs 省略 `tools` 默认降级）
 
-这是自定义 Agent 最容易踩坑的核心机制。在 `ParseAgentScriptItemFromMarkdown`（`0x7baa4c0`）和 `getCustomAgentConfig`（`0x8438e60`）中，工具权限按以下决策树解析：
+这是自定义 Agent 最容易踩坑的核心机制。在 `ParseAgentScriptItemFromMarkdown`（`0x7baa4c0`）中，自定义 Agent 的工具权限按以下决策树解析（注意：底层 `AgentFrontmatter` 结构体并无 `allowAllTools` YAML 标签，偏移 `0x30` 实际为 `excludeDefaultComponents`）：
 
 ```mermaid
 flowchart TD
-    Start["解析 agent.md Frontmatter"] --> HasTools{"是否显式配置了\ntools: 非空列表？"}
-    HasTools -->|是| Whitelist["仅启用 tools 列表中指定的工具\n(并根据所选工具裁剪 System Prompt 段落)"]
-    HasTools -->|否 (未写 tools 字段)"| CheckAllowAll{"allowAllTools 是否为 true？"}
-    CheckAllowAll -->|allowAllTools: false (默认)| ReadOnlyDefault["默认降级为 6 个只读工具：\nread_file, view_file_outline, view_code_item,\ngrep_search, find_by_name, search_web"]
-    CheckAllowAll -->|allowAllTools: true| FullTools["保留 BuildDefaultAgentConfig 全部 29 个内置工具\n(不设置 ToolOverrides 限制，保留完整 System Prompt)"]
+    Start["解析 agent.md Frontmatter"] --> HasTools{"是否显式配置了\ntools: 列表？"}
+    HasTools -->|是| Whitelist["启用 tools 列表中指定的全部工具\n(若包含 invoke_subagent/define_subagent 则保留 subagents 提示词与子代理能力)"]
+    HasTools -->|否 (未写 tools 字段)| CheckExclude{"excludeDefaultComponents 是否为 true？"}
+    CheckExclude -->|false (默认)| ReadOnlyDefault["默认降级为 6 个基础/只读工具 (0xb9e5af0)：\nsend_message, view_file, read_url_content,\nsearch_web, schedule, generate_image\n并剥离 subagents 提示词与子代理工具"]
+    CheckExclude -->|true| NoTools["不加载任何默认工具与默认提示词组件"]
 ```
 
-1. **默认安全降级（`allowAllTools: false` 且未写 `tools`）**：
-   - 系统为了防止子 Agent 默认拥有破坏性写权限，会自动将工具集收敛为 6 个只读工具（`view_file`、`view_file_outline`、`view_code_item`、`grep_search`、`find_by_name`、`search_web`），并移除系统提示词中关于写文件、跑命令、调子代理的说明段落。
-2. **全量工具开启（`allowAllTools: true` 且不写 `tools`）**：
-   - `ParseAgentScriptItemFromMarkdown` 检测到 `allowAllTools == true`（结构体偏移 `0x30`）时，跳过只读工具默认填充；
-   - `getCustomAgentConfig` 检测到 `allowAllTools == true`（`AgentScriptItem` 偏移 `0x88`）且 `tools` 为空时，直接复用 `BuildDefaultAgentConfig` 的全量工具配置，**保留全部 29 个内置工具**：
-     - 文件读写：`read_file`、`write_file`、`edit_file`、`view_file_outline`、`view_code_item`
-     - 搜索检索：`grep_search`、`find_by_name`、`search_web`、`read_url_content`、`view_content_chunk`
+1. **省略 `tools:` 时的默认安全降级**：
+   - 系统为了防止自定义子 Agent 默认拥有破坏性写权限，当 `agent.md` 未显式声明 `tools:` 时，会在 `0x7baa79e` 处自动将工具集赋值为 `0xb9e5af0` 处的 6 个基础只读工具（`send_message`、`view_file`、`read_url_content`、`search_web`、`schedule`、`generate_image`），并在 `0x7babb00` 处因检测到 `tools` 中不含 `invoke_subagent` / `define_subagent` 而自动剥离 `subagents` 系统提示词段落及子代理派发工具。
+2. **全量工具开启方式（显式声明完整 `tools:` 列表）**：
+   - 要让自定义主 Agent（如 `superpowers`）拥有与内置 `default` 主 Agent 完全一致的全部工具权限，**必须在 `agent.md` 的 `tools:` 字段中显式列出全部工具名称**：
+     - 文件读写：`read_file`、`view_file`、`write_file`、`write_to_file`、`edit_file`、`replace_file_content`、`multi_replace_file_content`、`notebook_edit`
+     - 目录与检索：`list_dir`、`find_by_name`、`grep_search`、`view_file_outline`、`view_code_item`、`code_search`、`moma_search`
      - 终端与任务：`run_command`、`manage_task`、`schedule`
-     - 多智能体协同：`invoke_subagent`、`define_subagent`、`manage_subagents`、`send_message`
-     - 交互与扩展：`ask_question`、`call_mcp_tool`、`list_resources`、`read_resource` 等
+     - 多智能体协同：`invoke_subagent`、`define_subagent`、`manage_subagents`、`send_message`、`manage_inbox`
+     - 交互与扩展：`ask_question`、`search_web`、`read_url_content`、`view_content_chunk`、`open_browser_url`、`generate_image`、`run-workflow`、`list_plugin_accounts`、`call_mcp_tool`、`list_resources`、`read_resource`
 
 ---
 
