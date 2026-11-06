@@ -23,6 +23,7 @@
    - 6.4 [示例 4：Git 分支隔离重构子 Agent（`workspace: branch`）](#64-示例-4git-分支隔离重构子-agentworkspace-branch)
    - 6.5 [示例 5：运行时动态定义子 Agent（`define_subagent` + `invoke_subagent`）](#65-示例-5运行时动态定义子-agentdefine_subagent--invoke_subagent)
 7. [AI 自动生成与修改 Agent 配置的检查清单（Checklist）](#7-ai-自动生成与修改-agent-配置的检查清单checklist)
+8. [实战踩坑记录与排错案例（Post-Mortem: 未注册工具与 MCP 冲突导致 Executor 启动失败）](#8-实战踩坑记录与排错案例post-mortem-未注册工具与-mcp-冲突导致-executor-启动失败)
 
 ---
 
@@ -139,12 +140,14 @@ flowchart TD
 1. **省略 `tools:` 时的默认安全降级**：
    - 系统为了防止自定义子 Agent 默认拥有破坏性写权限，当 `agent.md` 未显式声明 `tools:` 时，会在 `0x7baa79e` 处自动将工具集赋值为 `0xb9e5af0` 处的 6 个基础只读工具（`send_message`、`view_file`、`read_url_content`、`search_web`、`schedule`、`generate_image`），并在 `0x7babb00` 处因检测到 `tools` 中不含 `invoke_subagent` / `define_subagent` 而自动剥离 `subagents` 系统提示词段落及子代理派发工具。
 2. **全量工具开启方式（显式声明完整 `tools:` 列表）**：
-   - 要让自定义主 Agent（如 `superpowers`）拥有与内置 `default` 主 Agent 完全一致的全部工具权限，**必须在 `agent.md` 的 `tools:` 字段中显式列出全部工具名称**：
+   - 要让自定义主 Agent（如 `superpowers`）拥有完整工具权限与所有 MCP 服务，**必须在 `agent.md` 的 `tools:` 字段中仅声明合法注册的工具名称**，并通过 `inheritMcp: true` 自动挂载 MCP 工具：
      - 文件读写：`read_file`、`view_file`、`write_file`、`write_to_file`、`edit_file`、`replace_file_content`、`multi_replace_file_content`、`notebook_edit`
-     - 目录与检索：`list_dir`、`find_by_name`、`grep_search`、`view_file_outline`、`view_code_item`、`code_search`、`moma_search`
+     - 目录与检索：`list_dir`、`find_by_name`、`grep_search`
      - 终端与任务：`run_command`、`manage_task`、`schedule`
-     - 多智能体协同：`invoke_subagent`、`define_subagent`、`manage_subagents`、`send_message`、`manage_inbox`
-     - 交互与扩展：`ask_question`、`search_web`、`read_url_content`、`view_content_chunk`、`open_browser_url`、`generate_image`、`run-workflow`、`list_plugin_accounts`、`call_mcp_tool`、`list_resources`、`read_resource`
+     - 多智能体协同：`invoke_subagent`、`define_subagent`、`manage_subagents`、`send_message`
+     - 交互与扩展：`ask_question`、`search_web`、`read_url_content`、`generate_image`、`list_plugin_accounts`
+     - **MCP 工具与资源**：通过配置 `inheritMcp: true` 由系统自动注入，**严禁**在 `tools:` 列表中书写 `call_mcp_tool`、`list_resources`、`read_resource`，否则后端 registry 会报错 `unknown component: tool not found in registry`。
+     - **注意**：部分遗留或实验性工具名（如 `view_file_outline`、`view_code_item`、`code_search`、`moma_search`、`manage_inbox`、`view_content_chunk`、`open_browser_url`、`run-workflow`）未在当前 Antigravity 运行时的组件注册表（Registry）中注册，如果在 `tools:` 中显式包含它们，会导致 `failed to construct executor: failed to resolve components` 启动失败。
 
 ---
 
@@ -351,19 +354,46 @@ flowchart LR
 }
 ```
 
-**步骤 2：创建 [agent.md](file:///home/mickey/.gemini/config/agents/superpowers/agent.md#L1-L31)**
+**步骤 2：创建 [agent.md](file:///home/mickey/.gemini/config/agents/superpowers/agent.md#L1-L62)**
 ```markdown
 ---
 name: superpowers
-description: 启用 superpowers 插件全部技能与完整工具权限的主 Agent（仅允许作为主 Agent 运行，禁止作为子 Agent 调用）。
+description: 启用全部技能（superpowers 及全局技能）、全部 MCP 服务与完整工具权限的主 Agent（仅允许作为主 Agent 运行，禁止作为子 Agent 调用）。
 model: inherit
 mainAgent: true
 subagent: false
-allowAllTools: true
 inheritCustomizations: true
 inheritMcp: true
+tools:
+  - run_command
+  - manage_task
+  - schedule
+  - read_file
+  - view_file
+  - write_file
+  - write_to_file
+  - edit_file
+  - replace_file_content
+  - multi_replace_file_content
+  - notebook_edit
+  - list_dir
+  - find_by_name
+  - grep_search
+  - invoke_subagent
+  - define_subagent
+  - manage_subagents
+  - send_message
+  - ask_question
+  - search_web
+  - read_url_content
+  - generate_image
+  - list_plugin_accounts
 rules:
   - /home/mickey/.gemini/config/plugins/superpowers/GEMINI.md
+plugins:
+  - /home/mickey/.gemini/config/plugins/superpowers
+  - /home/mickey/.gemini/config/plugins/3gpp_support
+  - /home/mickey/.gemini/config/plugins/docker_external_storage
 skills:
   - /home/mickey/.gemini/config/plugins/superpowers/skills/brainstorming
   - /home/mickey/.gemini/config/plugins/superpowers/skills/diagnosing-superpowers
@@ -380,10 +410,14 @@ skills:
   - /home/mickey/.gemini/config/plugins/superpowers/skills/verification-before-completion
   - /home/mickey/.gemini/config/plugins/superpowers/skills/writing-plans
   - /home/mickey/.gemini/config/plugins/superpowers/skills/writing-skills
+  - /home/mickey/.gemini/skills/3gpp_support
+  - /home/mickey/.gemini/config/plugins/docker_external_storage/skills/docker-external-storage
+  - /home/mickey/.gemini/antigravity-cli/builtin/skills/agy-customizations
+  - /home/mickey/.gemini/antigravity-cli/builtin/skills/antigravity_guide
 ---
 
-You are the `superpowers` main agent with full tool access and all `superpowers` workflows and skills enabled.
-Follow the instructions and workflows defined in `using-superpowers` and invoke the corresponding `superpowers` skills whenever applicable.
+You are the `superpowers` main agent with full tool access, all MCP servers, and all `superpowers` and global skills enabled.
+Follow the instructions and workflows defined in `using-superpowers` and invoke the corresponding skills whenever applicable.
 ```
 
 **调用方式**：
@@ -509,11 +543,186 @@ tools:
    - 仅作子 Agent：`mainAgent: false` + `subagent: true`
    - 主子皆可：`mainAgent: true` + `subagent: true`
 2. **确认工具权限范围**：
-   - 需要**全部内置工具**（含 `invoke_subagent`、`run_command`、`write_file` 等）：必须设置 **`allowAllTools: true`**，并且**不要写 `tools:` 字段**。
-   - 需要**受限工具集**：设置 `allowAllTools: false` 并显式列出 `tools: [read, search, ...]`。
-   - 需要**调用 MCP 工具**：确保设置 `inheritMcp: true`（或配置 `mcpServers`），且开启了全部工具或在 `tools` 中包含了 `mcp`。
+   - **需要全权限**：必须显式列出所有合法的 Registry 原生工具（详见 3.2 与第 8 节白名单），同时设置 **`inheritMcp: true`** 自动挂载全部 MCP 工具。
+   - **三大避坑红线**：
+     - ❌ **严禁在 `tools:` 中声明 MCP 调度工具**（如 `call_mcp_tool`、`list_resources`、`read_resource`），它们由 `inheritMcp: true` 自动注入，写入会导致 Executor 构造失败。
+     - ❌ **严禁写入未注册的过时或内部工具**（如 `view_file_outline`、`code_search`、`open_browser_url`、`run-workflow` 等）。
+     - ❌ **不要依赖 `allowAllTools: true`**（底层 Go 结构体无此字段，全权限必须通过合法的显式 `tools:` 白名单 + `inheritMcp: true` 组合实现）。
+   - **需要受限权限**：可使用工具类别别名（如 `tools: [read, search, command]`）或指定具体的合法工具名。
+   - **修改后必须验证**：必须运行 `agy --agent <name> -p "ping"` 进行真实端到端测试，严禁仅凭 `agy agents` 列表命令判定配置成功。
 3. **确认 Skill 与 Rule 加载方式**：
    - 若引用的是**已启用插件或全局目录**中的 Skill，设置 `inheritCustomizations: true` 即可自动继承。
    - 若引用的是**已禁用插件（`"enabled": false`）**中的 Skill 或 Rule，必须在 `agent.md` 的 `skills:` 和 `rules:` 中使用**绝对路径**（以 `/` 开头）显式挂载。
 4. **确认默认 Agent 隔离性**：
    - 若不希望默认 Agent 使用某个插件的 Skill，检查 `~/.gemini/config/config.json` 中对应插件是否为 `"enabled": false`，并确认 `~/.gemini/skills/` 与 `~/.gemini/config/skills/` 下没有残留同名技能软链接或目录。
+
+---
+
+## 8. 实战踩坑记录与排错案例（Post-Mortem: 未注册工具与 MCP 冲突导致 Executor 启动失败）
+
+### 8.1 故障现场与错误重现
+
+在为 `superpowers` Agent 配置全量权限时，直接启动或通过 `agy --agent superpowers` 执行任务出现以下致命错误，导致 Agent 完全无法使用：
+
+```text
+⚠ failed to construct executor: failed to resolve components: 
+unknown component: tool "view_file_outline" not found in registry
+unknown component: tool "view_code_item" not found in registry
+unknown component: tool "code_search" not found in registry
+unknown component: tool "moma_search" not found in registry
+unknown component: tool "manage_inbox" not found in registry
+unknown component: tool "view_content_chunk" not found in registry
+unknown component: tool "open_browser_url" not found in registry
+unknown component: tool "run-workflow" not found in registry
+unknown component: tool "call_mcp_tool" not found in registry
+unknown component: tool "list_resources" not found in registry
+unknown component: tool "read_resource" not found in registry
+Error ID: 6d0b61c3-86c1-47c1-9f0e-4fb5417730f3-1
+```
+
+### 8.2 错误根因剖析（What Went Wrong?）
+
+经过排查与底层机制比对，该事故由以下三大技术误区共同导致：
+
+1. **混淆了“原生内置工具”与“MCP 协议调度器”的挂载机制**：
+   - **错误做法**：在 `agent.md` 的 `tools:` 列表中手动写上了 `call_mcp_tool`、`list_resources`、`read_resource`。
+   - **底层机制**：在 Antigravity 架构中，MCP 工具与资源是外部扩展协议层，由 **`inheritMcp: true`** 或 `mcpServers:` 字段激活并自动注入会话上下文。它们**不是**系统的原生组件（Component Registry），后端 Component Registry 根本不存在名为 `call_mcp_tool` 的工具条目。当这些名称出现在 `tools:` 列表时，Executor 在构造阶段会去 Registry 按原生工具寻找，最终因组件缺失报错崩溃。
+
+2. **盲目堆砌未注册的内部/过时工具名**：
+   - **错误做法**：在追求“赋予 Agent 全部权限”时，直接将各类历史文档、内部原型或其他 harness 中提及的工具名（`view_file_outline`、`view_code_item`、`code_search`、`moma_search`、`manage_inbox`、`view_content_chunk`、`open_browser_url`、`run-workflow`）一并写入 `tools:`。
+   - **底层机制**：Antigravity 的 Executor 采用强类型注册检查，所有在 `tools:` 声明的项必须 100% 存在于当前版本的 Component Registry 中。只要有任何一个未知名称，整个 Executor 就会中断构建。
+
+3. **测试验证盲区（假阴性陷阱）**：
+   - **错误做法**：修改 `agent.md` 后，仅运行了 `agy agents` 检查。
+   - **底层机制**：`agy agents` 仅对 `agent.md` 的 YAML Frontmatter 进行基础的格式语法反序列化，**不会触发 Executor 的组件构建与实例化流程**。因此在 `agy agents` 中显示正常，但用户一旦实际发起对话或运行命令就会立刻崩溃。
+
+---
+
+### 8.3 正确做法与规范配置模板
+
+#### 1. 合法工具白名单（经 Registry 严格校验）
+若需给自定义 Agent 授予全部原生工具权限，只能使用以下在当前 Registry 中确认存在的合法工具：
+
+```yaml
+tools:
+  # 1. 终端命令与后台任务
+  - run_command
+  - manage_task
+  - schedule
+  # 2. 文件读取、查看与定位
+  - read_file
+  - view_file
+  - list_dir
+  - find_by_name
+  - grep_search
+  # 3. 文件修改、写入与编辑
+  - write_file
+  - write_to_file
+  - edit_file
+  - replace_file_content
+  - multi_replace_file_content
+  - notebook_edit
+  # 4. 子代理生命周期与消息通信
+  - invoke_subagent
+  - define_subagent
+  - manage_subagents
+  - send_message
+  # 5. 网页搜索与内容抓取
+  - search_web
+  - read_url_content
+  # 6. 用户交互与多模态
+  - ask_question
+  - generate_image
+  - list_plugin_accounts
+```
+
+#### 2. MCP 权限开启的唯一正确方式
+开启 MCP 服务及工具**只认以下字段**，绝不在 `tools:` 中写任何 MCP 相关名称：
+```yaml
+inheritMcp: true
+```
+或者显式声明特定 MCP 服务：
+```yaml
+inheritMcp: false
+mcpServers:
+  - github
+  - cloudflare-dns
+```
+
+#### 3. 规范的全权限 Agent 完整示例（黄金模板）
+文件位置：`~/.gemini/config/agents/superpowers/agent.md`
+```yaml
+---
+name: superpowers
+description: 启用全部技能（superpowers 及全局技能）、全部 MCP 服务与完整工具权限的主 Agent。
+model: inherit
+mainAgent: true
+subagent: false
+inheritCustomizations: true
+inheritMcp: true
+tools:
+  - run_command
+  - manage_task
+  - schedule
+  - read_file
+  - view_file
+  - write_file
+  - write_to_file
+  - edit_file
+  - replace_file_content
+  - multi_replace_file_content
+  - notebook_edit
+  - list_dir
+  - find_by_name
+  - grep_search
+  - invoke_subagent
+  - define_subagent
+  - manage_subagents
+  - send_message
+  - ask_question
+  - search_web
+  - read_url_content
+  - generate_image
+  - list_plugin_accounts
+rules:
+  - /home/mickey/.gemini/config/plugins/superpowers/GEMINI.md
+plugins:
+  - /home/mickey/.gemini/config/plugins/superpowers
+  - /home/mickey/.gemini/config/plugins/3gpp_support
+  - /home/mickey/.gemini/config/plugins/docker_external_storage
+skills:
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/brainstorming
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/diagnosing-superpowers
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/dispatching-parallel-agents
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/executing-plans
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/finishing-a-development-branch
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/receiving-code-review
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/requesting-code-review
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/subagent-driven-development
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/systematic-debugging
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/test-driven-development
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/using-git-worktrees
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/using-superpowers
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/verification-before-completion
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/writing-plans
+  - /home/mickey/.gemini/config/plugins/superpowers/skills/writing-skills
+  - /home/mickey/.gemini/skills/3gpp_support
+  - /home/mickey/.gemini/config/plugins/docker_external_storage/skills/docker-external-storage
+  - /home/mickey/.gemini/antigravity-cli/builtin/skills/agy-customizations
+  - /home/mickey/.gemini/antigravity-cli/builtin/skills/antigravity_guide
+---
+
+You are the `superpowers` main agent with full tool access, all MCP servers, and all `superpowers` and global skills enabled.
+Follow the instructions and workflows defined in `using-superpowers` and invoke the corresponding skills whenever applicable.
+```
+
+#### 4. 交付前的必跑验证命令
+每次修改任何 Agent 配置后，**必须**运行以下非交互式执行命令进行端到端验证：
+```bash
+# 1. 验证 Executor 是否正常构建并响应（绝不能只跑 agy agents）
+agy --agent <agent-name> -p "echo ping"
+
+# 2. 验证该 Agent 是否具备全套工具、MCP 服务与 Skills
+agy --agent <agent-name> -p "列出你当前可用的工具名称、MCP 服务以及加载的 skills"
+```
+只有当命令顺利执行完成且退出码为 0，才可确认 Agent 配置生效且健康。
