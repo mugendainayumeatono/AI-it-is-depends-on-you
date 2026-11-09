@@ -77,12 +77,12 @@ wscript html2xml.vbs "C:\path\to\file1.html"
 If you double-click `html2xml.vbs` directly without passing any file arguments, a help dialog appears detailing how to use the script:
 
 ```text
-请将需要转换的 HTML 文件拖拽到此脚本图标上执行。
+Please drag and drop HTML file(s) onto this script icon to convert.
 
-使用说明：
-1. 支持同时拖拽单个或多个 .html / .htm 文件；
-2. 自动识别源文件编码（无声明时默认日文 Shift_JIS）；
-3. 转换后的 .xml 文件将自动保存在源文件同一目录下。
+Usage instructions:
+1. Supports dragging single or multiple .html / .htm files;
+2. Automatically detects source file encoding (defaults to Shift_JIS when unstated);
+3. Converted .xml files will be saved in the same directory as the source files.
 ```
 
 ---

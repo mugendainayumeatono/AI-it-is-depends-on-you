@@ -243,6 +243,15 @@ def test_main_workflow(vbs_content):
     )
 
     # Check dialog truncation protection for large batches
-    assert re.search(r"15", vbs_content) and re.search(r"其余明细已省略", vbs_content), (
-        "Main must truncate report details when exceeding 15 lines"
-    )
+    assert re.search(r"15", vbs_content) and (
+        re.search(r"omitted", vbs_content, re.IGNORECASE) or re.search(r"其余明细已省略", vbs_content)
+    ), "Main must truncate report details when exceeding 15 lines"
+
+
+def test_vbs_ascii_only():
+    """Verify html2xml.vbs contains strictly ASCII characters (no double-byte / multibyte characters)."""
+    with open(VBS_PATH, "rb") as f:
+        content = f.read()
+    non_ascii = [(i, b) for i, b in enumerate(content) if b >= 128]
+    assert len(non_ascii) == 0, f"Found {len(non_ascii)} non-ASCII / double-byte bytes in {VBS_PATH}"
+

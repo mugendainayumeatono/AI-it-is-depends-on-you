@@ -210,7 +210,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
     On Error GoTo 0
 
     If xmlDoc Is Nothing Then
-        Err.Raise vbObjectError + 1, "ConvertHtmlToXml", "无法创建 MSXML2.DOMDocument 组件"
+        Err.Raise vbObjectError + 1, "ConvertHtmlToXml", "Failed to create MSXML2.DOMDocument component."
         ConvertHtmlToXml = ""
         Exit Function
     End If
@@ -393,11 +393,11 @@ End Sub
 ' ==============================================================================
 Sub Main()
     If WScript.Arguments.Count = 0 Then
-        MsgBox "请将需要转换的 HTML 文件拖拽到此脚本图标上执行。" & vbCrLf & vbCrLf & _
-               "使用说明：" & vbCrLf & _
-               "1. 支持同时拖拽单个或多个 .html / .htm 文件；" & vbCrLf & _
-               "2. 自动识别源文件编码（无声明时默认日文 Shift_JIS）；" & vbCrLf & _
-               "3. 转换后的 .xml 文件将自动保存在源文件同一目录下。", vbInformation, "HTML 转 XML 工具"
+        MsgBox "Please drag and drop HTML file(s) onto this script icon to convert." & vbCrLf & vbCrLf & _
+               "Usage instructions:" & vbCrLf & _
+               "1. Supports dragging single or multiple .html / .htm files;" & vbCrLf & _
+               "2. Automatically detects source file encoding (defaults to Shift_JIS when unstated);" & vbCrLf & _
+               "3. Converted .xml files will be saved in the same directory as the source files.", vbInformation, "HTML to XML Converter"
         WScript.Quit
     End If
 
@@ -418,15 +418,15 @@ Sub Main()
         If Not fso.FileExists(filePath) Then
             skipCount = skipCount + 1
             If fso.FolderExists(filePath) Then
-                reportDetails = reportDetails & vbCrLf & "[跳过] 目录暂不支持直接转换: " & fso.GetFileName(filePath)
+                reportDetails = reportDetails & vbCrLf & "[SKIPPED] Directory conversion is not supported: " & fso.GetFileName(filePath)
             Else
-                reportDetails = reportDetails & vbCrLf & "[跳过] 文件不存在: " & filePath
+                reportDetails = reportDetails & vbCrLf & "[SKIPPED] File not found: " & filePath
             End If
         Else
             ext = LCase(fso.GetExtensionName(filePath))
             If ext <> "html" And ext <> "htm" Then
                 skipCount = skipCount + 1
-                reportDetails = reportDetails & vbCrLf & "[跳过] 非 HTML 文件: " & fso.GetFileName(filePath)
+                reportDetails = reportDetails & vbCrLf & "[SKIPPED] Not an HTML file: " & fso.GetFileName(filePath)
             Else
                 parentFolder = fso.GetParentFolderName(filePath)
                 baseName = fso.GetBaseName(filePath)
@@ -442,7 +442,7 @@ Sub Main()
                 htmlContent = ReadTextFile(filePath, encoding)
                 xmlContent = ConvertHtmlToXml(htmlContent, encoding)
                 If Err.Number = 0 And Len(xmlContent) = 0 And Len(htmlContent) > 0 Then
-                    Err.Raise vbObjectError + 2, "Main", "XML 转换结果为空"
+                    Err.Raise vbObjectError + 2, "Main", "XML conversion result is empty."
                 End If
                 If Err.Number = 0 Then
                     SaveTextFile xmlPath, xmlContent, encoding
@@ -450,12 +450,12 @@ Sub Main()
 
                 If Err.Number = 0 Then
                     successCount = successCount + 1
-                    reportDetails = reportDetails & vbCrLf & "[成功] " & fso.GetFileName(filePath) & " -> " & baseName & ".xml (" & encoding & ")"
+                    reportDetails = reportDetails & vbCrLf & "[SUCCESS] " & fso.GetFileName(filePath) & " -> " & baseName & ".xml (" & encoding & ")"
                 Else
                     failCount = failCount + 1
                     errDesc = Err.Description
-                    If Len(errDesc) = 0 Then errDesc = "未知错误 (错误码 &H" & Hex(Err.Number) & ")"
-                    reportDetails = reportDetails & vbCrLf & "[失败] " & fso.GetFileName(filePath) & ": " & errDesc
+                    If Len(errDesc) = 0 Then errDesc = "Unknown error (Error code &H" & Hex(Err.Number) & ")"
+                    reportDetails = reportDetails & vbCrLf & "[FAILED] " & fso.GetFileName(filePath) & ": " & errDesc
                     Err.Clear
                 End If
                 On Error GoTo 0
@@ -465,10 +465,10 @@ Sub Main()
 
     Set fso = Nothing
 
-    summaryMsg = "HTML 转 XML 处理完成！" & vbCrLf & vbCrLf & _
-                 "成功: " & successCount & " 个" & vbCrLf & _
-                 "失败: " & failCount & " 个" & vbCrLf & _
-                 "跳过: " & skipCount & " 个"
+    summaryMsg = "HTML to XML conversion completed!" & vbCrLf & vbCrLf & _
+                 "Succeeded: " & successCount & vbCrLf & _
+                 "Failed:    " & failCount & vbCrLf & _
+                 "Skipped:   " & skipCount
 
     If (failCount > 0 Or skipCount > 0 Or successCount <= 5) And Len(reportDetails) > 0 Then
         detailLines = Split(Mid(reportDetails, Len(vbCrLf) + 1), vbCrLf)
@@ -478,13 +478,13 @@ Sub Main()
             For k = 0 To 14
                 truncatedDetails = truncatedDetails & vbCrLf & detailLines(k)
             Next
-            truncatedDetails = truncatedDetails & vbCrLf & "... (共 " & totalDetails & " 项，其余明细已省略)"
+            truncatedDetails = truncatedDetails & vbCrLf & "... (" & totalDetails & " items in total, remaining details omitted)"
             reportDetails = truncatedDetails
         End If
-        summaryMsg = summaryMsg & vbCrLf & vbCrLf & "明细:" & reportDetails
+        summaryMsg = summaryMsg & vbCrLf & vbCrLf & "Details:" & reportDetails
     End If
 
-    MsgBox summaryMsg, vbInformation, "处理完成"
+    MsgBox summaryMsg, vbInformation, "Conversion Complete"
 End Sub
 
 ' Execute main entry point
