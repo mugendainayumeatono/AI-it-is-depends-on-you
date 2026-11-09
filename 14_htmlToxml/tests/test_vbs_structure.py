@@ -194,6 +194,12 @@ def test_dom_conversion(vbs_content):
         or re.search(r"createElement", vbs_content, re.IGNORECASE)
     ), "DOM conversion must traverse nodes and create corresponding XML elements"
 
+    # Check that serialized XML declaration retains encoding parameter
+    assert (
+        re.search(r"xmlResult.*encoding", vbs_content, re.IGNORECASE)
+        or re.search(r"InStr\(.*encoding", vbs_content, re.IGNORECASE)
+    ), "ConvertHtmlToXml must verify and ensure 'encoding' is preserved in the final serialized XML declaration"
+
 
 def test_main_workflow(vbs_content):
     """Validate drag-and-drop batch controller and argument handling."""

@@ -195,7 +195,7 @@ End Function
 ' ==============================================================================
 Function ConvertHtmlToXml(htmlContent, charset)
     Dim htmlDoc, xmlDoc, pi, xmlRoot
-    Dim rootAttr, rName, rVal, xmlResult
+    Dim rootAttr, rName, rVal, xmlResult, endPi
 
     Set htmlDoc = CreateObject("htmlfile")
     htmlDoc.open
@@ -226,12 +226,16 @@ Function ConvertHtmlToXml(htmlContent, charset)
     If Not htmlDoc.documentElement Is Nothing Then
         If Not htmlDoc.documentElement.attributes Is Nothing Then
             For Each rootAttr In htmlDoc.documentElement.attributes
+                rName = ""
+                rVal = ""
                 On Error Resume Next
                 If rootAttr.specified Then
                     rName = LCase(rootAttr.name)
                     rName = SanitizeXmlName(rName)
                     If Len(rName) > 0 Then
-                        rVal = CStr(rootAttr.value)
+                        If Not IsObject(rootAttr.value) Then
+                            rVal = CStr(rootAttr.value)
+                        End If
                         xmlRoot.setAttribute rName, rVal
                     End If
                 End If
@@ -245,6 +249,11 @@ Function ConvertHtmlToXml(htmlContent, charset)
     xmlResult = xmlDoc.xml
     If InStr(xmlResult, "<?xml") = 0 Then
         xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & vbCrLf & xmlResult
+    ElseIf InStr(xmlResult, "encoding") = 0 Then
+        endPi = InStr(xmlResult, "?>")
+        If endPi > 0 Then
+            xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & Mid(xmlResult, endPi + 2)
+        End If
     End If
 
     ConvertHtmlToXml = xmlResult
@@ -299,6 +308,8 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                     If Not xmlElem Is Nothing Then
                         If Not child.attributes Is Nothing Then
                             For Each attr In child.attributes
+                                aName = ""
+                                aVal = ""
                                 On Error Resume Next
                                 If attr.specified Then
                                     aName = LCase(attr.name)
@@ -306,7 +317,7 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                                     If Len(aName) > 0 Then
                                         If aName = "style" And IsObject(child.style) Then
                                             aVal = child.style.cssText
-                                        Else
+                                        ElseIf Not IsObject(attr.value) Then
                                             aVal = CStr(attr.value)
                                         End If
                                         xmlElem.setAttribute aName, aVal
@@ -348,6 +359,9 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                 commentVal = child.nodeValue
                 If Err.Number = 0 Then
                     commentVal = Replace(commentVal, "--", "- -")
+                    If Right(commentVal, 1) = "-" Then
+                        commentVal = commentVal & " "
+                    End If
                     Set xmlComment = xmlDoc.createComment(commentVal)
                     If Err.Number = 0 And Not xmlComment Is Nothing Then
                         xmlParentNode.appendChild xmlComment
