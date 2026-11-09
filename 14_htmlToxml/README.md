@@ -110,11 +110,11 @@ HTML documents in legacy and international projects often mix UTF-8 with regiona
 flowchart TD
     Start["Input HTML File"] --> CheckBOM{"1. Check Byte Order Mark (BOM)"}
     CheckBOM -- "EF BB BF" --> UTF8["UTF-8"]
-    CheckBOM -- "FF FE" --> UTF16LE["UTF-16LE (unicode)"]
-    CheckBOM -- "FE FF" --> UTF16BE["UTF-16BE (unicodeFFFE)"]
-    CheckBOM -- "No BOM" --> ReadMeta{"2. Scan first 2048 bytes for <meta>"}
-    ReadMeta -- "<meta charset='...'>" --> MetaMatch["Detected Meta Charset (e.g. EUC-JP, UTF-8)"]
-    ReadMeta -- "<meta http-equiv=... charset=...>" --> MetaMatch
+    CheckBOM -- "FF FE" --> UTF16LE["UTF-16LE (utf-16)"]
+    CheckBOM -- "FE FF" --> UTF16BE["UTF-16BE (utf-16be)"]
+    CheckBOM -- "No BOM" --> ReadMeta{"2. Scan first 2048 bytes for &lt;meta&gt;"}
+    ReadMeta -- "&lt;meta charset='...'&gt;" --> MetaMatch["Detected Meta Charset (e.g. EUC-JP, UTF-8)"]
+    ReadMeta -- "&lt;meta http-equiv=... charset=...&gt;" --> MetaMatch
     ReadMeta -- "No meta charset found" --> Fallback["3. Default Fallback: Shift_JIS"]
     UTF8 --> Convert["Read & Convert DOM with Matching Charset"]
     UTF16LE --> Convert
@@ -129,8 +129,8 @@ flowchart TD
 1. **Byte Order Mark (BOM)**:
    - Evaluates the initial binary bytes using `ADODB.Stream`.
    - `EF BB BF` -> `utf-8`
-   - `FF FE` -> `unicode` (UTF-16LE)
-   - `FE FF` -> `unicodeFFFE` (UTF-16BE)
+   - `FF FE` -> `utf-16` (UTF-16LE)
+   - `FE FF` -> `utf-16be` (UTF-16BE)
 2. **HTML `<meta>` Tag Inspection**:
    - Reads the initial 2048 bytes using single-byte stream (`iso-8859-1`) to avoid corrupting text pointers.
    - Evaluates regular expressions for both HTML5 and HTML4 forms:

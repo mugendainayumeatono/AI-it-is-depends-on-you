@@ -6,6 +6,7 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 VBS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "html2xml.vbs"))
 
 
+@pytest.fixture(scope="session", autouse=True)
 def setup_fixtures():
     os.makedirs(FIXTURES_DIR, exist_ok=True)
     # UTF-8 with BOM
@@ -23,10 +24,6 @@ def setup_fixtures():
     # Unclosed tags
     with open(os.path.join(FIXTURES_DIR, "sample_unclosed_tags.html"), "w", encoding="utf-8") as f:
         f.write('<html><head><title>Void Tags</title></head><body>Line 1<br>Line 2<hr><img src="pic.png"><input type="text" value="test"></body></html>')
-
-
-# Ensure fixtures exist upon module import
-setup_fixtures()
 
 
 def get_vbs_content():
@@ -123,11 +120,17 @@ def test_encoding_and_io(vbs_content):
         "DetectEncoding must fall back to 'shift_jis' when no BOM or meta charset is found"
     )
 
-    # Check BOM detection logic for UTF-8 and Unicode
+    # Check BOM detection logic for UTF-8 and UTF-16
     assert (
         re.search(r"(&HEF|&HBB|&HBF|239|187|191)", vbs_content, re.IGNORECASE)
         or re.search(r"utf-8", vbs_content, re.IGNORECASE)
     ), "BOM detection logic must handle UTF-8 BOM"
+    assert re.search(r'DetectEncoding\s*=\s*["\']utf-16["\']', vbs_content, re.IGNORECASE), (
+        "DetectEncoding must return standardized 'utf-16' for UTF-16LE BOM"
+    )
+    assert re.search(r'DetectEncoding\s*=\s*["\']utf-16be["\']', vbs_content, re.IGNORECASE), (
+        "DetectEncoding must return standardized 'utf-16be' for UTF-16BE BOM"
+    )
 
     # Check regex pattern for meta charset detection
     assert re.search(r"VBScript\.RegExp", vbs_content, re.IGNORECASE), (
@@ -200,6 +203,14 @@ def test_dom_conversion(vbs_content):
         or re.search(r"InStr\(.*encoding", vbs_content, re.IGNORECASE)
     ), "ConvertHtmlToXml must verify and ensure 'encoding' is preserved in the final serialized XML declaration"
 
+    # Check COM instantiation error guard and defensive null attribute check
+    assert re.search(r"xmlDoc\s+Is\s+Nothing.*?Err\.Raise", vbs_content, re.IGNORECASE | re.DOTALL), (
+        "ConvertHtmlToXml must explicitly raise an error when xmlDoc fails to instantiate"
+    )
+    assert re.search(r"IsNull\(.*attr.*value\)", vbs_content, re.IGNORECASE), (
+        "ConvertHtmlToXml must defensively guard against Null attribute values"
+    )
+
 
 def test_main_workflow(vbs_content):
     """Validate drag-and-drop batch controller and argument handling."""
@@ -224,4 +235,14 @@ def test_main_workflow(vbs_content):
     # Check target XML path construction
     assert re.search(r"\.xml", vbs_content, re.IGNORECASE), (
         "Script must output to a file with .xml extension in the same directory"
+    )
+
+    # Check empty XML safeguard
+    assert re.search(r"Len\(xmlContent\)\s*=\s*0.*?Err\.Raise", vbs_content, re.IGNORECASE | re.DOTALL), (
+        "Main must raise an error when XML output is empty despite non-empty HTML input"
+    )
+
+    # Check dialog truncation protection for large batches
+    assert re.search(r"15", vbs_content) and re.search(r"其余明细已省略", vbs_content), (
+        "Main must truncate report details when exceeding 15 lines"
     )

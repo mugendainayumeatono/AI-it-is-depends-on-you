@@ -55,7 +55,7 @@ Function DetectEncoding(filePath)
         If b0 = &HFF And b1 = &HFE Then
             binStream.Close
             Set binStream = Nothing
-            DetectEncoding = "unicode"
+            DetectEncoding = "utf-16"
             Exit Function
         End If
         
@@ -63,7 +63,7 @@ Function DetectEncoding(filePath)
         If b0 = &HFE And b1 = &HFF Then
             binStream.Close
             Set binStream = Nothing
-            DetectEncoding = "unicodeFFFE"
+            DetectEncoding = "utf-16be"
             Exit Function
         End If
     End If
@@ -210,6 +210,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
     On Error GoTo 0
 
     If xmlDoc Is Nothing Then
+        Err.Raise vbObjectError + 1, "ConvertHtmlToXml", "无法创建 MSXML2.DOMDocument 组件"
         ConvertHtmlToXml = ""
         Exit Function
     End If
@@ -233,7 +234,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
                     rName = LCase(rootAttr.name)
                     rName = SanitizeXmlName(rName)
                     If Len(rName) > 0 Then
-                        If Not IsObject(rootAttr.value) Then
+                        If Not IsNull(rootAttr.value) And Not IsObject(rootAttr.value) Then
                             rVal = CStr(rootAttr.value)
                         End If
                         Err.Clear
@@ -327,7 +328,7 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                                     If Len(aName) > 0 Then
                                         If aName = "style" And IsObject(child.style) Then
                                             aVal = child.style.cssText
-                                        ElseIf Not IsObject(attr.value) Then
+                                        ElseIf Not IsNull(attr.value) And Not IsObject(attr.value) Then
                                             aVal = CStr(attr.value)
                                         End If
                                         Err.Clear
@@ -403,6 +404,7 @@ Sub Main()
     Dim fso, i, filePath, ext, parentFolder, baseName, xmlPath
     Dim encoding, htmlContent, xmlContent, errDesc
     Dim successCount, failCount, skipCount, reportDetails, summaryMsg
+    Dim detailLines, truncatedDetails, k, totalDetails
 
     Set fso = CreateObject("Scripting.FileSystemObject")
     successCount = 0
@@ -439,7 +441,12 @@ Sub Main()
                 encoding = DetectEncoding(filePath)
                 htmlContent = ReadTextFile(filePath, encoding)
                 xmlContent = ConvertHtmlToXml(htmlContent, encoding)
-                SaveTextFile xmlPath, xmlContent, encoding
+                If Len(xmlContent) = 0 And Len(htmlContent) > 0 Then
+                    Err.Raise vbObjectError + 2, "Main", "XML 转换结果为空"
+                End If
+                If Err.Number = 0 Then
+                    SaveTextFile xmlPath, xmlContent, encoding
+                End If
 
                 If Err.Number = 0 Then
                     successCount = successCount + 1
@@ -464,6 +471,16 @@ Sub Main()
                  "跳过: " & skipCount & " 个"
 
     If (failCount > 0 Or skipCount > 0 Or successCount <= 5) And Len(reportDetails) > 0 Then
+        detailLines = Split(Mid(reportDetails, Len(vbCrLf) + 1), vbCrLf)
+        totalDetails = UBound(detailLines) + 1
+        If totalDetails > 15 Then
+            truncatedDetails = ""
+            For k = 0 To 14
+                truncatedDetails = truncatedDetails & vbCrLf & detailLines(k)
+            Next
+            truncatedDetails = truncatedDetails & vbCrLf & "... (共 " & (failCount + skipCount) & " 项，其余明细已省略)"
+            reportDetails = truncatedDetails
+        End If
         summaryMsg = summaryMsg & vbCrLf & vbCrLf & "明细:" & reportDetails
     End If
 
