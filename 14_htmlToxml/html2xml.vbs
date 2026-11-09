@@ -188,19 +188,187 @@ Function SanitizeXmlName(nameStr)
 End Function
 
 ' ==============================================================================
+' IsVoidTag(tagName)
+' Returns True if the specified tag is an HTML5 void element that does not have
+' a closing tag.
+' ==============================================================================
+Function IsVoidTag(tagName)
+    Select Case LCase(tagName)
+        Case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"
+            IsVoidTag = True
+        Case Else
+            IsVoidTag = False
+    End Select
+End Function
+
+' ==============================================================================
+' ShouldAutoClose(currentTopTag, newTag)
+' Determines if an open HTML element should be implicitly closed upon
+' encountering a new sibling or parent-level tag.
+' ==============================================================================
+Function ShouldAutoClose(currentTopTag, newTag)
+    Dim cur, nxt
+    cur = LCase(currentTopTag)
+    nxt = LCase(newTag)
+    If cur = nxt Then
+        Select Case cur
+            Case "p", "li", "tr", "td", "th", "dt", "dd", "option"
+                ShouldAutoClose = True
+                Exit Function
+        End Select
+    End If
+    If (cur = "td" Or cur = "th") And nxt = "tr" Then
+        ShouldAutoClose = True
+        Exit Function
+    End If
+    ShouldAutoClose = False
+End Function
+
+' ==============================================================================
+' SanitizeComment(rawComment)
+' Sanitizes an XML comment by replacing double hyphens and trailing hyphens.
+' ==============================================================================
+Function SanitizeComment(rawComment)
+    Dim c
+    c = rawComment
+    Do While InStr(c, "--") > 0
+        c = Replace(c, "--", "- -")
+    Loop
+    If Right(c, 1) = "-" Then
+        c = c & " "
+    End If
+    SanitizeComment = c
+End Function
+
+' ==============================================================================
+' DecodeHtmlEntities(rawText)
+' Decodes named and numeric HTML entities into plain characters.
+' ==============================================================================
+Function DecodeHtmlEntities(rawText)
+    If Len(rawText) = 0 Then
+        DecodeHtmlEntities = ""
+        Exit Function
+    End If
+    If InStr(rawText, "&") = 0 Then
+        DecodeHtmlEntities = rawText
+        Exit Function
+    End If
+
+    Dim txt
+    txt = rawText
+    txt = Replace(txt, "&nbsp;", ChrW(160))
+    txt = Replace(txt, "&copy;", ChrW(169))
+    txt = Replace(txt, "&reg;", ChrW(174))
+    txt = Replace(txt, "&trade;", ChrW(8482))
+    txt = Replace(txt, "&mdash;", ChrW(8212))
+    txt = Replace(txt, "&ndash;", ChrW(8211))
+    txt = Replace(txt, "&hellip;", ChrW(8230))
+    txt = Replace(txt, "&bull;", ChrW(8226))
+    txt = Replace(txt, "&middot;", ChrW(183))
+    txt = Replace(txt, "&laquo;", ChrW(171))
+    txt = Replace(txt, "&raquo;", ChrW(187))
+    txt = Replace(txt, "&euro;", ChrW(8364))
+    txt = Replace(txt, "&yen;", ChrW(165))
+    txt = Replace(txt, "&pound;", ChrW(163))
+    txt = Replace(txt, "&cent;", ChrW(162))
+    txt = Replace(txt, "&quot;", """")
+    txt = Replace(txt, "&apos;", "'")
+    txt = Replace(txt, "&lt;", "<")
+    txt = Replace(txt, "&gt;", ">")
+    txt = Replace(txt, "&amp;", "&")
+
+    If InStr(txt, "&#") > 0 Then
+        Dim reNum, matches, m, numVal, codeVal
+        Set reNum = CreateObject("VBScript.RegExp")
+        reNum.Global = True
+        reNum.IgnoreCase = True
+        reNum.Pattern = "&#([0-9]+);"
+        Set matches = reNum.Execute(txt)
+        For Each m In matches
+            numVal = CLng(m.SubMatches(0))
+            If numVal > 0 And numVal < 65536 Then
+                txt = Replace(txt, m.Value, ChrW(numVal))
+            End If
+        Next
+        reNum.Pattern = "&#x([0-9a-fA-F]+);"
+        Set matches = reNum.Execute(txt)
+        For Each m In matches
+            On Error Resume Next
+            codeVal = CLng("&H" & m.SubMatches(0))
+            If Err.Number = 0 Then
+                If codeVal > 0 And codeVal < 65536 Then
+                    txt = Replace(txt, m.Value, ChrW(codeVal))
+                End If
+            End If
+            Err.Clear
+            On Error GoTo 0
+        Next
+        Set reNum = Nothing
+    End If
+
+    DecodeHtmlEntities = txt
+End Function
+
+' ==============================================================================
+' ParseHtmlAttributes(attrString, xmlElem, xmlDoc)
+' Parses HTML tag attribute string and sets sanitized attributes on xmlElem.
+' ==============================================================================
+Sub ParseHtmlAttributes(attrString, xmlElem, xmlDoc)
+    If Len(Trim(attrString)) = 0 Then Exit Sub
+
+    Dim reAttr, matches, m, aName, aVal, hasEq
+    Set reAttr = CreateObject("VBScript.RegExp")
+    reAttr.Global = True
+    reAttr.IgnoreCase = True
+    reAttr.Pattern = "([a-zA-Z0-9_\-:]+)(?:\s*=\s*(?:""([^""]*)""|'([^']*)'|([^\s>]+)))?"
+    Set matches = reAttr.Execute(attrString)
+
+    For Each m In matches
+        aName = SanitizeXmlName(LCase(m.SubMatches(0)))
+        If Len(aName) > 0 Then
+            hasEq = (InStr(m.Value, "=") > 0)
+            If Not hasEq Then
+                aVal = aName
+            ElseIf InStr(m.Value, """") > 0 Then
+                aVal = DecodeHtmlEntities(CStr(m.SubMatches(1)))
+            ElseIf InStr(m.Value, "'") > 0 Then
+                aVal = DecodeHtmlEntities(CStr(m.SubMatches(2)))
+            ElseIf Not IsEmpty(m.SubMatches(3)) Then
+                aVal = DecodeHtmlEntities(CStr(m.SubMatches(3)))
+            Else
+                aVal = ""
+            End If
+
+            On Error Resume Next
+            xmlElem.setAttribute aName, aVal
+            If Err.Number <> 0 Then
+                Err.Clear
+                If InStr(aName, ":") > 0 Then
+                    aName = Replace(aName, ":", "_")
+                    xmlElem.setAttribute aName, aVal
+                    If Err.Number <> 0 Then Err.Clear
+                End If
+            End If
+            On Error GoTo 0
+        End If
+    Next
+    Set reAttr = Nothing
+End Sub
+
+' ==============================================================================
 ' ConvertHtmlToXml(htmlContent, charset)
-' Parses HTML string using MSHTML (htmlfile COM object),
-' constructs a well-formed XML DOM using MSXML2.DOMDocument,
-' and returns the XML string.
+' Parses HTML string using a pure VBScript tokenizer and constructs a well-formed
+' XML DOM using MSXML2.DOMDocument, returning the serialized XML string.
 ' ==============================================================================
 Function ConvertHtmlToXml(htmlContent, charset)
-    Dim htmlDoc, xmlDoc, pi, xmlRoot
-    Dim rootAttr, rName, rVal, xmlResult, endPi, piText
-
-    Set htmlDoc = CreateObject("htmlfile")
-    htmlDoc.open
-    htmlDoc.write htmlContent
-    htmlDoc.close
+    Dim xmlDoc, pi, xmlRoot
+    Dim curPos, htmlLen, ltPos, textChunk, xmlText
+    Dim endPos, commentText, xmlComment, cdataText, xmlCdata
+    Dim inQuote, qChar, p, ch, tagEndPos, tagContent, isSelfClosing
+    Dim spacePos, tagName, attrStr, xmlElem, currentElem
+    Dim closeTagName, targetIdx, j, closeTagPat, closePos, closeEndPos, rawBlock
+    Dim xmlResult, endPi, piText
+    Dim elemStack(), stackNames(), stackCount, stackCap
 
     On Error Resume Next
     Set xmlDoc = CreateObject("MSXML2.DOMDocument.6.0")
@@ -224,38 +392,232 @@ Function ConvertHtmlToXml(htmlContent, charset)
     Set xmlRoot = xmlDoc.createElement("html")
     xmlDoc.appendChild xmlRoot
 
-    If Not htmlDoc.documentElement Is Nothing Then
-        If Not htmlDoc.documentElement.attributes Is Nothing Then
-            For Each rootAttr In htmlDoc.documentElement.attributes
-                rName = ""
-                rVal = ""
-                On Error Resume Next
-                If rootAttr.specified Then
-                    rName = LCase(rootAttr.name)
-                    rName = SanitizeXmlName(rName)
-                    If Len(rName) > 0 Then
-                        If Not IsNull(rootAttr.value) And Not IsObject(rootAttr.value) Then
-                            rVal = CStr(rootAttr.value)
-                        End If
-                        Err.Clear
-                        xmlRoot.setAttribute rName, rVal
-                        If Err.Number <> 0 Then
-                            Err.Clear
-                            If InStr(rName, ":") > 0 Then
-                                rName = Replace(rName, ":", "_")
-                                xmlRoot.setAttribute rName, rVal
-                                If Err.Number <> 0 Then Err.Clear
+    ' Initialize element stack with root <html>
+    stackCap = 64
+    ReDim elemStack(stackCap)
+    ReDim stackNames(stackCap)
+    Set elemStack(0) = xmlRoot
+    stackNames(0) = "html"
+    stackCount = 1
+
+    curPos = 1
+    htmlLen = Len(htmlContent)
+
+    Do While curPos <= htmlLen
+        ltPos = InStr(curPos, htmlContent, "<")
+        If ltPos = 0 Then
+            textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos))
+            If Len(Trim(textChunk)) > 0 Then
+                Set currentElem = elemStack(stackCount - 1)
+                Set xmlText = xmlDoc.createTextNode(textChunk)
+                currentElem.appendChild xmlText
+            End If
+            Exit Do
+        End If
+
+        If ltPos > curPos Then
+            textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos, ltPos - curPos))
+            If Len(textChunk) > 0 Then
+                Set currentElem = elemStack(stackCount - 1)
+                Set xmlText = xmlDoc.createTextNode(textChunk)
+                currentElem.appendChild xmlText
+            End If
+        End If
+
+        curPos = ltPos
+
+        ' 1. Comment <!-- ... -->
+        If Mid(htmlContent, curPos, 4) = "<!--" Then
+            endPos = InStr(curPos + 4, htmlContent, "-->")
+            If endPos > 0 Then
+                commentText = Mid(htmlContent, curPos + 4, endPos - (curPos + 4))
+                commentText = SanitizeComment(commentText)
+                Set currentElem = elemStack(stackCount - 1)
+                Set xmlComment = xmlDoc.createComment(commentText)
+                currentElem.appendChild xmlComment
+                curPos = endPos + 3
+            Else
+                curPos = htmlLen + 1
+            End If
+
+        ' 2. Doctype <!DOCTYPE ...> or CDATA <![CDATA[ ... ]]>
+        ElseIf UCase(Mid(htmlContent, curPos, 9)) = "<!DOCTYPE" Then
+            endPos = InStr(curPos + 9, htmlContent, ">")
+            If endPos > 0 Then
+                curPos = endPos + 1
+            Else
+                curPos = htmlLen + 1
+            End If
+
+        ElseIf UCase(Mid(htmlContent, curPos, 9)) = "<![CDATA[" Then
+            endPos = InStr(curPos + 9, htmlContent, "]]>")
+            If endPos > 0 Then
+                cdataText = Mid(htmlContent, curPos + 9, endPos - (curPos + 9))
+                Set currentElem = elemStack(stackCount - 1)
+                Set xmlCdata = xmlDoc.createCDATASection(Replace(cdataText, "]]>", "]] >"))
+                currentElem.appendChild xmlCdata
+                curPos = endPos + 3
+            Else
+                curPos = htmlLen + 1
+            End If
+
+        ' 3. Processing Instruction <? ... ?>
+        ElseIf Mid(htmlContent, curPos, 2) = "<?" Then
+            endPos = InStr(curPos + 2, htmlContent, "?>")
+            If endPos > 0 Then
+                curPos = endPos + 2
+            Else
+                curPos = htmlLen + 1
+            End If
+
+        ' 4. End tag </tag>
+        ElseIf Mid(htmlContent, curPos, 2) = "</" Then
+            endPos = InStr(curPos + 2, htmlContent, ">")
+            If endPos > 0 Then
+                closeTagName = SanitizeXmlName(LCase(Trim(Mid(htmlContent, curPos + 2, endPos - (curPos + 2)))))
+                curPos = endPos + 1
+
+                If Len(closeTagName) > 0 Then
+                    If closeTagName = "html" Then
+                        Do While stackCount > 1
+                            stackCount = stackCount - 1
+                            Set elemStack(stackCount) = Nothing
+                            stackNames(stackCount) = ""
+                        Loop
+                    Else
+                        targetIdx = -1
+                        For j = stackCount - 1 To 1 Step -1
+                            If LCase(stackNames(j)) = closeTagName Then
+                                targetIdx = j
+                                Exit For
                             End If
+                        Next
+                        If targetIdx >= 1 Then
+                            Do While stackCount > targetIdx
+                                stackCount = stackCount - 1
+                                Set elemStack(stackCount) = Nothing
+                                stackNames(stackCount) = ""
+                            Loop
                         End If
                     End If
                 End If
-                On Error GoTo 0
+            Else
+                curPos = htmlLen + 1
+            End If
+
+        ' 5. Start tag <tag ...>
+        Else
+            inQuote = False
+            qChar = ""
+            tagEndPos = 0
+            For p = curPos + 1 To htmlLen
+                ch = Mid(htmlContent, p, 1)
+                If inQuote Then
+                    If ch = qChar Then inQuote = False
+                Else
+                    If ch = """" Or ch = "'" Then
+                        inQuote = True
+                        qChar = ch
+                    ElseIf ch = ">" Then
+                        tagEndPos = p
+                        Exit For
+                    End If
+                End If
             Next
+
+            If tagEndPos = 0 Then
+                textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos))
+                If Len(Trim(textChunk)) > 0 Then
+                    Set currentElem = elemStack(stackCount - 1)
+                    Set xmlText = xmlDoc.createTextNode(textChunk)
+                    currentElem.appendChild xmlText
+                End If
+                Exit Do
+            End If
+
+            tagContent = Trim(Mid(htmlContent, curPos + 1, tagEndPos - curPos - 1))
+            curPos = tagEndPos + 1
+
+            isSelfClosing = False
+            If Right(tagContent, 1) = "/" Then
+                isSelfClosing = True
+                tagContent = Trim(Left(tagContent, Len(tagContent) - 1))
+            End If
+
+            spacePos = InStr(tagContent, " ")
+            If spacePos = 0 Then spacePos = InStr(tagContent, vbTab)
+            If spacePos = 0 Then spacePos = InStr(tagContent, vbCr)
+            If spacePos = 0 Then spacePos = InStr(tagContent, vbLf)
+
+            If spacePos > 0 Then
+                tagName = SanitizeXmlName(LCase(Left(tagContent, spacePos - 1)))
+                attrStr = Mid(tagContent, spacePos + 1)
+            Else
+                tagName = SanitizeXmlName(LCase(tagContent))
+                attrStr = ""
+            End If
+
+            If Len(tagName) > 0 Then
+                If (tagName = "script" Or tagName = "style") And Not isSelfClosing Then
+                    closeTagPat = "</" & tagName & ">"
+                    closePos = InStr(curPos, LCase(htmlContent), closeTagPat)
+                    rawBlock = ""
+                    If closePos > 0 Then
+                        rawBlock = Mid(htmlContent, curPos, closePos - curPos)
+                        closeEndPos = InStr(closePos, htmlContent, ">")
+                        If closeEndPos > 0 Then
+                            curPos = closeEndPos + 1
+                        Else
+                            curPos = closePos + Len(closeTagPat)
+                        End If
+                    Else
+                        rawBlock = Mid(htmlContent, curPos)
+                        curPos = htmlLen + 1
+                    End If
+
+                    Set xmlElem = xmlDoc.createElement(tagName)
+                    ParseHtmlAttributes attrStr, xmlElem, xmlDoc
+                    If Len(rawBlock) > 0 Then
+                        Set xmlCdata = xmlDoc.createCDATASection(Replace(rawBlock, "]]>", "]] >"))
+                        xmlElem.appendChild xmlCdata
+                    End If
+                    Set currentElem = elemStack(stackCount - 1)
+                    currentElem.appendChild xmlElem
+
+                ElseIf tagName = "html" And stackCount = 1 Then
+                    ParseHtmlAttributes attrStr, xmlRoot, xmlDoc
+
+                Else
+                    If stackCount > 1 Then
+                        If ShouldAutoClose(stackNames(stackCount - 1), tagName) Then
+                            stackCount = stackCount - 1
+                            Set elemStack(stackCount) = Nothing
+                            stackNames(stackCount) = ""
+                        End If
+                    End If
+
+                    Set xmlElem = xmlDoc.createElement(tagName)
+                    ParseHtmlAttributes attrStr, xmlElem, xmlDoc
+
+                    Set currentElem = elemStack(stackCount - 1)
+                    currentElem.appendChild xmlElem
+
+                    If Not isSelfClosing And Not IsVoidTag(tagName) Then
+                        If stackCount >= stackCap Then
+                            stackCap = stackCap * 2
+                            ReDim Preserve elemStack(stackCap)
+                            ReDim Preserve stackNames(stackCap)
+                        End If
+                        Set elemStack(stackCount) = xmlElem
+                        stackNames(stackCount) = tagName
+                        stackCount = stackCount + 1
+                    End If
+                End If
+            End If
         End If
+    Loop
 
-        AppendXmlChildNodes htmlDoc.documentElement, xmlRoot, xmlDoc
-    End If
-
+    ' Serialize XML
     xmlResult = xmlDoc.xml
     endPi = InStr(xmlResult, "?>")
     If endPi > 0 Then
@@ -269,123 +631,12 @@ Function ConvertHtmlToXml(htmlContent, charset)
 
     ConvertHtmlToXml = xmlResult
 
-    Set htmlDoc = Nothing
+    For j = 0 To stackCount - 1
+        Set elemStack(j) = Nothing
+    Next
+    Set xmlRoot = Nothing
     Set xmlDoc = Nothing
 End Function
-
-' ==============================================================================
-' AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
-' Recursively traverses MSHTML child nodes and appends corresponding
-' XML elements, text nodes, and comment nodes to xmlParentNode.
-' ==============================================================================
-Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
-    If htmlNode Is Nothing Then Exit Sub
-    If htmlNode.childNodes Is Nothing Then Exit Sub
-
-    Dim child, nodeTypeVal
-    Dim rawName, tagName, xmlElem
-    Dim attr, aName, aVal
-    Dim textVal, xmlText
-    Dim commentVal, xmlComment
-
-    For Each child In htmlNode.childNodes
-        On Error Resume Next
-        nodeTypeVal = child.nodeType
-        If Err.Number <> 0 Then
-            nodeTypeVal = 0
-            Err.Clear
-        End If
-        On Error GoTo 0
-
-        Select Case nodeTypeVal
-            Case 1 ' Element node
-                rawName = LCase(child.nodeName)
-                tagName = SanitizeXmlName(rawName)
-
-                If Len(tagName) > 0 Then
-                    Set xmlElem = Nothing
-                    On Error Resume Next
-                    Set xmlElem = xmlDoc.createElement(tagName)
-                    If Err.Number <> 0 Or xmlElem Is Nothing Then
-                        Err.Clear
-                        If InStr(tagName, ":") > 0 Then
-                            tagName = Replace(tagName, ":", "_")
-                            Set xmlElem = xmlDoc.createElement(tagName)
-                            If Err.Number <> 0 Then Set xmlElem = Nothing
-                        End If
-                    End If
-                    On Error GoTo 0
-
-                    If Not xmlElem Is Nothing Then
-                        If Not child.attributes Is Nothing Then
-                            For Each attr In child.attributes
-                                aName = ""
-                                aVal = ""
-                                On Error Resume Next
-                                If attr.specified Then
-                                    aName = LCase(attr.name)
-                                    aName = SanitizeXmlName(aName)
-                                    If Len(aName) > 0 Then
-                                        If aName = "style" And IsObject(child.style) Then
-                                            aVal = child.style.cssText
-                                        ElseIf Not IsNull(attr.value) And Not IsObject(attr.value) Then
-                                            aVal = CStr(attr.value)
-                                        End If
-                                        Err.Clear
-                                        xmlElem.setAttribute aName, aVal
-                                        If Err.Number <> 0 Then
-                                            Err.Clear
-                                            If InStr(aName, ":") > 0 Then
-                                                aName = Replace(aName, ":", "_")
-                                                xmlElem.setAttribute aName, aVal
-                                                If Err.Number <> 0 Then Err.Clear
-                                            End If
-                                        End If
-                                    End If
-                                End If
-                                On Error GoTo 0
-                            Next
-                        End If
-
-                        xmlParentNode.appendChild xmlElem
-                        AppendXmlChildNodes child, xmlElem, xmlDoc
-                    End If
-                End If
-
-            Case 3 ' Text node
-                textVal = ""
-                On Error Resume Next
-                textVal = child.nodeValue
-                If Err.Number = 0 And Len(textVal) > 0 Then
-                    Set xmlText = xmlDoc.createTextNode(textVal)
-                    If Err.Number = 0 And Not xmlText Is Nothing Then
-                        xmlParentNode.appendChild xmlText
-                    End If
-                End If
-                Err.Clear
-                On Error GoTo 0
-
-            Case 8 ' Comment node
-                commentVal = ""
-                On Error Resume Next
-                commentVal = child.nodeValue
-                If Err.Number = 0 Then
-                    Do While InStr(commentVal, "--") > 0
-                        commentVal = Replace(commentVal, "--", "- -")
-                    Loop
-                    If Right(commentVal, 1) = "-" Then
-                        commentVal = commentVal & " "
-                    End If
-                    Set xmlComment = xmlDoc.createComment(commentVal)
-                    If Err.Number = 0 And Not xmlComment Is Nothing Then
-                        xmlParentNode.appendChild xmlComment
-                    End If
-                End If
-                Err.Clear
-                On Error GoTo 0
-        End Select
-    Next
-End Sub
 
 ' ==============================================================================
 ' Main()
@@ -414,6 +665,9 @@ Sub Main()
 
     For i = 0 To WScript.Arguments.Count - 1
         filePath = Trim(WScript.Arguments.Item(i))
+        If Left(filePath, 1) = """" And Right(filePath, 1) = """" And Len(filePath) >= 2 Then
+            filePath = Mid(filePath, 2, Len(filePath) - 2)
+        End If
 
         If Not fso.FileExists(filePath) Then
             skipCount = skipCount + 1

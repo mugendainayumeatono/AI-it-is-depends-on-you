@@ -172,13 +172,10 @@ def test_dom_conversion(vbs_content):
     assert re.search(r"Function\s+ConvertHtmlToXml\s*\(", vbs_content, re.IGNORECASE), (
         "ConvertHtmlToXml function is missing in html2xml.vbs"
     )
-    assert re.search(r"(Sub|Function)\s+AppendXmlChildNodes\s*\(", vbs_content, re.IGNORECASE), (
-        "AppendXmlChildNodes subroutine/function is missing in html2xml.vbs"
-    )
 
-    # Check MSHTML htmlfile creation
-    assert re.search(r'CreateObject\s*\(\s*["\']htmlfile["\']\s*\)', vbs_content, re.IGNORECASE), (
-        "MSHTML 'htmlfile' COM object creation is required for HTML parsing"
+    # Ensure deprecated and restricted 'htmlfile' COM object is NOT used
+    assert not re.search(r'CreateObject\s*\(\s*["\']htmlfile["\']\s*\)', vbs_content, re.IGNORECASE), (
+        "MSHTML 'htmlfile' is deprecated on Windows 10/11 (causes error 80040100) and must not be used"
     )
 
     # Check MSXML DOMDocument creation
@@ -191,11 +188,10 @@ def test_dom_conversion(vbs_content):
         "createProcessingInstruction('xml', ...) is required to emit XML declaration"
     )
 
-    # Check recursive DOM node processing (nodeType checks or node conversion)
-    assert (
-        re.search(r"nodeType", vbs_content, re.IGNORECASE)
-        or re.search(r"createElement", vbs_content, re.IGNORECASE)
-    ), "DOM conversion must traverse nodes and create corresponding XML elements"
+    # Check DOM element creation
+    assert re.search(r"createElement", vbs_content, re.IGNORECASE), (
+        "DOM conversion must create corresponding XML elements"
+    )
 
     # Check that serialized XML declaration retains encoding parameter
     assert (
@@ -203,12 +199,9 @@ def test_dom_conversion(vbs_content):
         or re.search(r"InStr\(.*encoding", vbs_content, re.IGNORECASE)
     ), "ConvertHtmlToXml must verify and ensure 'encoding' is preserved in the final serialized XML declaration"
 
-    # Check COM instantiation error guard and defensive null attribute check
+    # Check COM instantiation error guard
     assert re.search(r"xmlDoc\s+Is\s+Nothing.*?Err\.Raise", vbs_content, re.IGNORECASE | re.DOTALL), (
         "ConvertHtmlToXml must explicitly raise an error when xmlDoc fails to instantiate"
-    )
-    assert re.search(r"IsNull\(.*attr.*value\)", vbs_content, re.IGNORECASE), (
-        "ConvertHtmlToXml must defensively guard against Null attribute values"
     )
 
 
@@ -248,10 +241,42 @@ def test_main_workflow(vbs_content):
     ), "Main must truncate report details when exceeding 15 lines"
 
 
+def test_tokenizer_and_helpers(vbs_content):
+    """Validate tokenizer helper functions and regex rules."""
+    # Check helper function declarations
+    assert re.search(r"Function\s+IsVoidTag\s*\(", vbs_content, re.IGNORECASE), (
+        "IsVoidTag helper function is missing"
+    )
+    assert re.search(r"Function\s+ShouldAutoClose\s*\(", vbs_content, re.IGNORECASE), (
+        "ShouldAutoClose helper function is missing"
+    )
+    assert re.search(r"Function\s+SanitizeComment\s*\(", vbs_content, re.IGNORECASE), (
+        "SanitizeComment helper function is missing"
+    )
+    assert re.search(r"Function\s+DecodeHtmlEntities\s*\(", vbs_content, re.IGNORECASE), (
+        "DecodeHtmlEntities helper function is missing"
+    )
+    assert re.search(r"(Sub|Function)\s+ParseHtmlAttributes\s*\(", vbs_content, re.IGNORECASE), (
+        "ParseHtmlAttributes helper subroutine/function is missing"
+    )
+
+    # Check HTML5 void tags coverage
+    for void_tag in ["br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "param", "source", "track", "wbr"]:
+        assert re.search(rf'"{void_tag}"', vbs_content, re.IGNORECASE), (
+            f"Void tag '{void_tag}' must be handled by IsVoidTag"
+        )
+
+    # Check quote stripping in Main()
+    assert re.search(r'Left\(filePath,\s*1\)\s*=\s*""""', vbs_content), (
+        "Main must strip outer quotes from filePath argument"
+    )
+
+
 def test_vbs_ascii_only():
     """Verify html2xml.vbs contains strictly ASCII characters (no double-byte / multibyte characters)."""
     with open(VBS_PATH, "rb") as f:
         content = f.read()
     non_ascii = [(i, b) for i, b in enumerate(content) if b >= 128]
     assert len(non_ascii) == 0, f"Found {len(non_ascii)} non-ASCII / double-byte bytes in {VBS_PATH}"
+
 

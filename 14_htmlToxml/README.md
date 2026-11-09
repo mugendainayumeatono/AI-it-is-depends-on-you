@@ -10,8 +10,9 @@ Designed specifically for Windows environments, `html2xml.vbs` operates with **z
 
 - **Pure VBScript / Zero External Dependencies**: Runs out-of-the-box on any modern Windows system using built-in Windows Script Host (`wscript.exe` / `cscript.exe`).
 - **Drag-and-Drop Batch Processing**: Drag one or multiple `.html` / `.htm` files onto `html2xml.vbs` in Windows Explorer to convert them instantly.
-- **Fault-Tolerant HTML Parsing**: Leverages the Trident/MSHTML parsing engine (`htmlfile`) to ingest poorly-formed HTML, unbalanced tags, and legacy markup.
-- **Strict XML Serialization**: Uses `MSXML2.DOMDocument` to reconstruct a normalized, well-formed XML DOM where all tags (including HTML void tags like `<br>`, `<img>`, `<hr>`, `<input>`) are properly closed.
+- **Fault-Tolerant HTML Tokenizer**: Built-in pure VBScript tokenizer and element stack builder parses irregular HTML, auto-closes unclosed tags, preserves void tags, safely isolates `<script>`/`<style>` blocks in CDATA sections, and decodes HTML entities.
+- **Modern Windows 10/11 Compatible**: Completely eliminates legacy `htmlfile` (`mshtml.dll`), resolving the `0x80040100` ("This command is not supported" / "このコマンドはサポートされていません") COM restriction on modern patched Windows editions.
+- **Strict XML Serialization**: Uses `MSXML2.DOMDocument` to construct a normalized, well-formed XML DOM where all tags (including HTML void tags like `<br>`, `<img>`, `<hr>`, `<input>`) are properly closed.
 - **Smart Encoding Detection & Preservation**:
   1. Inspects Byte Order Marks (BOM) for UTF-8, UTF-16LE, and UTF-16BE.
   2. Inspects `<meta>` charset declarations (`<meta charset="...">` and `<meta http-equiv="Content-Type" content="...; charset=...">`).
@@ -30,7 +31,6 @@ Designed specifically for Windows environments, `html2xml.vbs` operates with **z
 - **Operating System**: Windows 7 / 8 / 10 / 11 or Windows Server 2008 R2+.
 - **Runtime**: Windows Script Host (WSH), pre-installed on all standard Windows editions.
 - **Components**: Standard Windows COM libraries:
-  - `htmlfile` (Microsoft HTML Object Library / MSHTML)
   - `MSXML2.DOMDocument.6.0` (or `MSXML2.DOMDocument`)
   - `ADODB.Stream` (ActiveX Data Objects)
   - `Scripting.FileSystemObject`
@@ -46,15 +46,15 @@ Designed specifically for Windows environments, `html2xml.vbs` operates with **z
 3. Drag the selected files and drop them directly onto `html2xml.vbs` (or a desktop shortcut to it).
 4. The script converts each file sequentially and displays a summary dialog upon completion:
    ```text
-   HTML 转 XML 处理完成！
+   HTML to XML conversion completed!
 
-   成功: 2 个
-   失败: 0 个
-   跳过: 0 个
+   Succeeded: 2
+   Failed:    0
+   Skipped:   0
 
-   明细:
-   [成功] index.html -> index.xml (utf-8)
-   [成功] report.html -> report.xml (shift_jis)
+   Details:
+   [SUCCESS] index.html -> index.xml (utf-8)
+   [SUCCESS] report.html -> report.xml (shift_jis)
    ```
 
 ### Method 2: Command-Line (CLI / Batch Scripting)
@@ -221,7 +221,13 @@ Line 1<br>Line 2<hr><img src="test.png"><input type="text" value="hello">
 ---
 
 ### Q5: Can I drag entire folders onto the script?
-**Answer**: Currently, `html2xml.vbs` processes `.html` and `.htm` files directly. If a directory is dropped onto the script, it is skipped with a friendly notification (`[跳过] 目录暂不支持直接转换`). To convert all files in a folder, select all files inside the folder (`Ctrl+A`) and drag them onto the script, or use the command line loop shown in Q3.
+**Answer**: Currently, `html2xml.vbs` processes `.html` and `.htm` files directly. If a directory is dropped onto the script, it is skipped with a friendly notification (`[SKIPPED] Directory conversion is not supported`). To convert all files in a folder, select all files inside the folder (`Ctrl+A`) and drag them onto the script, or use the command line loop shown in Q3.
+
+---
+
+### Q6: Encountered error `0x80040100` ("このコマンドはサポートされていません。" / "This command is not supported").
+**Reason**: In modern Windows 10/11 updates, Internet Explorer / MSHTML (`mshtml.dll` `htmlfile`) has been locked down by Microsoft security patches, disabling legacy COM document write methods.  
+**Solution**: `html2xml.vbs` uses a pure VBScript regular expression tokenizer and stack-based XML DOM builder directly on `MSXML2.DOMDocument.6.0`, with zero reliance on `htmlfile`. Ensure you are using the latest version of `html2xml.vbs`.
 
 ---
 
@@ -237,8 +243,10 @@ This verifies:
 - `test_fixtures_integrity`: Ensures test fixtures for UTF-8 (BOM & meta), Shift_JIS (meta & fallback), and void tags are accurate.
 - `test_vbs_file_exists`: Validates presence of `html2xml.vbs`.
 - `test_encoding_and_io`: Tests regex patterns, BOM byte matching, and ADODB stream handling.
-- `test_dom_conversion`: Checks MSHTML and MSXML initialization, XML PI creation, and tree parsing.
+- `test_dom_conversion`: Checks pure MSXML DOM initialization, XML PI creation, and tree parsing (strictly forbidding deprecated `htmlfile`).
 - `test_main_workflow`: Verifies argument parsing, drag-and-drop workflow, and extension filtering.
+- `test_tokenizer_and_helpers`: Verifies HTML5 void tags, entity decoders, and attribute parsers.
+- `test_vbs_ascii_only`: Ensures zero double-byte or non-ASCII characters exist in `html2xml.vbs`.
 
 ---
 
