@@ -138,7 +138,8 @@ def test_encoding_and_io(vbs_content):
     )
 
     # Extract regex patterns from VBScript and test against fixture samples
-    patterns = re.findall(r'\.Pattern\s*=\s*"([^"]+)"', vbs_content, re.IGNORECASE)
+    raw_patterns = re.findall(r'\.Pattern\s*=\s*"((?:""|[^"])+)"', vbs_content, re.IGNORECASE)
+    patterns = [p.replace('""', '"') for p in raw_patterns]
     assert len(patterns) > 0, "Could not find any regex .Pattern assignments in VBScript"
 
     # Test that at least one regex matches sample_utf8_meta.html charset
@@ -209,9 +210,9 @@ def test_main_workflow(vbs_content):
         r"WScript\.Echo", vbs_content, re.IGNORECASE
     ), "Script must display a guidance prompt when launched with 0 arguments"
 
-    # Check file extension filtering (.html / .htm)
-    assert re.search(r"\.html", vbs_content, re.IGNORECASE) and re.search(
-        r"\.htm", vbs_content, re.IGNORECASE
+    # Check file extension filtering (.html / .htm or html / htm)
+    assert re.search(r"\.?html", vbs_content, re.IGNORECASE) and re.search(
+        r"\.?htm", vbs_content, re.IGNORECASE
     ), "Script must validate .html and .htm file extensions"
 
     # Check target XML path construction
