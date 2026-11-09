@@ -441,7 +441,7 @@ Sub Main()
                 encoding = DetectEncoding(filePath)
                 htmlContent = ReadTextFile(filePath, encoding)
                 xmlContent = ConvertHtmlToXml(htmlContent, encoding)
-                If Len(xmlContent) = 0 And Len(htmlContent) > 0 Then
+                If Err.Number = 0 And Len(xmlContent) = 0 And Len(htmlContent) > 0 Then
                     Err.Raise vbObjectError + 2, "Main", "XML 转换结果为空"
                 End If
                 If Err.Number = 0 Then
@@ -478,7 +478,7 @@ Sub Main()
             For k = 0 To 14
                 truncatedDetails = truncatedDetails & vbCrLf & detailLines(k)
             Next
-            truncatedDetails = truncatedDetails & vbCrLf & "... (共 " & (failCount + skipCount) & " 项，其余明细已省略)"
+            truncatedDetails = truncatedDetails & vbCrLf & "... (共 " & totalDetails & " 项，其余明细已省略)"
             reportDetails = truncatedDetails
         End If
         summaryMsg = summaryMsg & vbCrLf & vbCrLf & "明细:" & reportDetails
