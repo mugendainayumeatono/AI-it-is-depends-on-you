@@ -386,3 +386,89 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
     Next
 End Sub
 
+' ==============================================================================
+' Main()
+' Entry point for drag-and-drop batch processing.
+' ==============================================================================
+Sub Main()
+    If WScript.Arguments.Count = 0 Then
+        MsgBox "请将需要转换的 HTML 文件拖拽到此脚本图标上执行。" & vbCrLf & vbCrLf & _
+               "使用说明：" & vbCrLf & _
+               "1. 支持同时拖拽单个或多个 .html / .htm 文件；" & vbCrLf & _
+               "2. 自动识别源文件编码（无声明时默认日文 Shift_JIS）；" & vbCrLf & _
+               "3. 转换后的 .xml 文件将自动保存在源文件同一目录下。", vbInformation, "HTML 转 XML 工具"
+        WScript.Quit
+    End If
+
+    Dim fso, i, filePath, ext, parentFolder, baseName, xmlPath
+    Dim encoding, htmlContent, xmlContent, errDesc
+    Dim successCount, failCount, skipCount, reportDetails, summaryMsg
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    successCount = 0
+    failCount = 0
+    skipCount = 0
+    reportDetails = ""
+
+    For i = 0 To WScript.Arguments.Count - 1
+        filePath = Trim(WScript.Arguments.Item(i))
+
+        If Not fso.FileExists(filePath) Then
+            skipCount = skipCount + 1
+            If fso.FolderExists(filePath) Then
+                reportDetails = reportDetails & vbCrLf & "[跳过] 目录暂不支持直接转换: " & fso.GetFileName(filePath)
+            Else
+                reportDetails = reportDetails & vbCrLf & "[跳过] 文件不存在: " & filePath
+            End If
+        Else
+            ext = LCase(fso.GetExtensionName(filePath))
+            If ext <> "html" And ext <> "htm" Then
+                skipCount = skipCount + 1
+                reportDetails = reportDetails & vbCrLf & "[跳过] 非 HTML 文件: " & fso.GetFileName(filePath)
+            Else
+                parentFolder = fso.GetParentFolderName(filePath)
+                baseName = fso.GetBaseName(filePath)
+                xmlPath = fso.BuildPath(parentFolder, baseName & ".xml")
+
+                On Error Resume Next
+                Err.Clear
+                encoding = ""
+                htmlContent = ""
+                xmlContent = ""
+
+                encoding = DetectEncoding(filePath)
+                htmlContent = ReadTextFile(filePath, encoding)
+                xmlContent = ConvertHtmlToXml(htmlContent, encoding)
+                SaveTextFile xmlPath, xmlContent, encoding
+
+                If Err.Number = 0 Then
+                    successCount = successCount + 1
+                    reportDetails = reportDetails & vbCrLf & "[成功] " & fso.GetFileName(filePath) & " -> " & baseName & ".xml (" & encoding & ")"
+                Else
+                    failCount = failCount + 1
+                    errDesc = Err.Description
+                    If Len(errDesc) = 0 Then errDesc = "未知错误 (错误码 &H" & Hex(Err.Number) & ")"
+                    reportDetails = reportDetails & vbCrLf & "[失败] " & fso.GetFileName(filePath) & ": " & errDesc
+                    Err.Clear
+                End If
+                On Error GoTo 0
+            End If
+        End If
+    Next
+
+    Set fso = Nothing
+
+    summaryMsg = "HTML 转 XML 处理完成！" & vbCrLf & vbCrLf & _
+                 "成功: " & successCount & " 个" & vbCrLf & _
+                 "失败: " & failCount & " 个" & vbCrLf & _
+                 "跳过: " & skipCount & " 个"
+
+    If (failCount > 0 Or skipCount > 0 Or successCount <= 5) And Len(reportDetails) > 0 Then
+        summaryMsg = summaryMsg & vbCrLf & vbCrLf & "明细:" & reportDetails
+    End If
+
+    MsgBox summaryMsg, vbInformation, "处理完成"
+End Sub
+
+' Execute main entry point
+Call Main()
