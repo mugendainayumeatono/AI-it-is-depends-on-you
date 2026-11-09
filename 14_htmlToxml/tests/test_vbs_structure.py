@@ -272,11 +272,38 @@ def test_tokenizer_and_helpers(vbs_content):
     )
 
 
+def test_xml_character_sanitization(vbs_content):
+    """Validate XML character sanitization and control code protections."""
+    # Check SanitizeXmlText function
+    assert re.search(r"Function\s+SanitizeXmlText\s*\(", vbs_content, re.IGNORECASE), (
+        "SanitizeXmlText function is required to strip illegal XML control characters"
+    )
+    # Check control characters regex
+    assert re.search(r"\\x00-\\x08|\\x0b\\x0c|\\x0e-\\x1f|\\x7f", vbs_content, re.IGNORECASE), (
+        "SanitizeXmlText must match and strip disallowed XML 1.0 control characters"
+    )
+    # Check safe DOM appender subroutines
+    assert re.search(r"Sub\s+SafeAppendTextNode\s*\(", vbs_content, re.IGNORECASE), (
+        "SafeAppendTextNode subroutine is required for defensive text node insertion"
+    )
+    assert re.search(r"Sub\s+SafeAppendComment\s*\(", vbs_content, re.IGNORECASE), (
+        "SafeAppendComment subroutine is required for defensive comment insertion"
+    )
+    assert re.search(r"Sub\s+SafeAppendCData\s*\(", vbs_content, re.IGNORECASE), (
+        "SafeAppendCData subroutine is required for defensive CDATA insertion"
+    )
+    # Check non-breaking space mapping to ASCII space (protecting Shift_JIS)
+    assert re.search(r'Replace\(txt,\s*["\']&nbsp;["\'],\s*["\']\s*["\']\)', vbs_content, re.IGNORECASE), (
+        "DecodeHtmlEntities must replace &nbsp; with standard ASCII space to avoid Shift_JIS U+00A0 encoding errors"
+    )
+
+
 def test_vbs_ascii_only():
     """Verify html2xml.vbs contains strictly ASCII characters (no double-byte / multibyte characters)."""
     with open(VBS_PATH, "rb") as f:
         content = f.read()
     non_ascii = [(i, b) for i, b in enumerate(content) if b >= 128]
     assert len(non_ascii) == 0, f"Found {len(non_ascii)} non-ASCII / double-byte bytes in {VBS_PATH}"
+
 
 

@@ -241,6 +241,109 @@ Function SanitizeComment(rawComment)
 End Function
 
 ' ==============================================================================
+' SanitizeXmlText(rawStr)
+' Removes ASCII control characters disallowed by the XML 1.0 specification:
+' #x00-#x08, #x0B-#x0C, #x0E-#x1F, #x7F.
+' Retains valid XML whitespace: Tab (#x09), LF (#x0A), CR (#x0D).
+' ==============================================================================
+Function SanitizeXmlText(rawStr)
+    If Len(rawStr) = 0 Then
+        SanitizeXmlText = ""
+        Exit Function
+    End If
+
+    Dim reCtrl, clean
+    Set reCtrl = CreateObject("VBScript.RegExp")
+    reCtrl.Global = True
+    reCtrl.IgnoreCase = True
+    reCtrl.Pattern = "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"
+    clean = reCtrl.Replace(rawStr, "")
+    Set reCtrl = Nothing
+
+    SanitizeXmlText = clean
+End Function
+
+' ==============================================================================
+' SafeAppendTextNode(xmlDoc, parentNode, textStr)
+' Safely creates and appends an XML text node, sanitizing control characters
+' and defensively handling any MSXML invalid character rejections.
+' ==============================================================================
+Sub SafeAppendTextNode(xmlDoc, parentNode, textStr)
+    If parentNode Is Nothing Then Exit Sub
+    Dim clean, xmlText
+    clean = SanitizeXmlText(textStr)
+    If Len(clean) = 0 Then Exit Sub
+
+    On Error Resume Next
+    Err.Clear
+    Set xmlText = xmlDoc.createTextNode(clean)
+    If Err.Number = 0 And Not xmlText Is Nothing Then
+        parentNode.appendChild xmlText
+    Else
+        ' Fallback: filter strictly to W3C XML 1.0 valid character code ranges
+        Err.Clear
+        Dim i, ch, code, sb
+        sb = ""
+        For i = 1 To Len(clean)
+            ch = Mid(clean, i, 1)
+            code = AscW(ch)
+            If code < 0 Then code = code + 65536
+            If code = 9 Or code = 10 Or code = 13 Or (code >= 32 And code <= 55295) Or (code >= 57344 And code <= 65533) Then
+                sb = sb & ch
+            End If
+        Next
+        If Len(sb) > 0 Then
+            Set xmlText = xmlDoc.createTextNode(sb)
+            If Err.Number = 0 And Not xmlText Is Nothing Then
+                parentNode.appendChild xmlText
+            End If
+        End If
+    End If
+    On Error GoTo 0
+End Sub
+
+' ==============================================================================
+' SafeAppendComment(xmlDoc, parentNode, commentStr)
+' Safely creates and appends an XML comment node.
+' ==============================================================================
+Sub SafeAppendComment(xmlDoc, parentNode, commentStr)
+    If parentNode Is Nothing Then Exit Sub
+    Dim clean, xmlComment
+    clean = SanitizeXmlText(SanitizeComment(commentStr))
+
+    On Error Resume Next
+    Err.Clear
+    Set xmlComment = xmlDoc.createComment(clean)
+    If Err.Number = 0 And Not xmlComment Is Nothing Then
+        parentNode.appendChild xmlComment
+    End If
+    On Error GoTo 0
+End Sub
+
+' ==============================================================================
+' SafeAppendCData(xmlDoc, parentNode, cdataStr)
+' Safely creates and appends a CDATA section, falling back to a text node if
+' CDATA creation fails.
+' ==============================================================================
+Sub SafeAppendCData(xmlDoc, parentNode, cdataStr)
+    If parentNode Is Nothing Then Exit Sub
+    Dim clean, xmlCdata
+    clean = SanitizeXmlText(cdataStr)
+    clean = Replace(clean, "]]>", "]] >")
+
+    On Error Resume Next
+    Err.Clear
+    Set xmlCdata = xmlDoc.createCDATASection(clean)
+    If Err.Number = 0 And Not xmlCdata Is Nothing Then
+        parentNode.appendChild xmlCdata
+    Else
+        Err.Clear
+        SafeAppendTextNode xmlDoc, parentNode, clean
+    End If
+    On Error GoTo 0
+End Sub
+
+' ==============================================================================
 ' DecodeHtmlEntities(rawText)
 ' Decodes named and numeric HTML entities into plain characters.
 ' ==============================================================================
@@ -256,21 +359,23 @@ Function DecodeHtmlEntities(rawText)
 
     Dim txt
     txt = rawText
-    txt = Replace(txt, "&nbsp;", ChrW(160))
-    txt = Replace(txt, "&copy;", ChrW(169))
-    txt = Replace(txt, "&reg;", ChrW(174))
-    txt = Replace(txt, "&trade;", ChrW(8482))
-    txt = Replace(txt, "&mdash;", ChrW(8212))
-    txt = Replace(txt, "&ndash;", ChrW(8211))
-    txt = Replace(txt, "&hellip;", ChrW(8230))
-    txt = Replace(txt, "&bull;", ChrW(8226))
-    txt = Replace(txt, "&middot;", ChrW(183))
-    txt = Replace(txt, "&laquo;", ChrW(171))
-    txt = Replace(txt, "&raquo;", ChrW(187))
-    txt = Replace(txt, "&euro;", ChrW(8364))
+    ' Replace non-breaking space with standard ASCII space (code 32)
+    ' This prevents character encoding conversion errors in Shift_JIS (U+00A0 does not exist in CP932)
+    txt = Replace(txt, "&nbsp;", " ")
+    txt = Replace(txt, "&copy;", "(C)")
+    txt = Replace(txt, "&reg;", "(R)")
+    txt = Replace(txt, "&trade;", "(TM)")
+    txt = Replace(txt, "&mdash;", " - ")
+    txt = Replace(txt, "&ndash;", "-")
+    txt = Replace(txt, "&hellip;", "...")
+    txt = Replace(txt, "&bull;", "*")
+    txt = Replace(txt, "&middot;", ".")
+    txt = Replace(txt, "&laquo;", "<<")
+    txt = Replace(txt, "&raquo;", ">>")
+    txt = Replace(txt, "&euro;", "EUR")
     txt = Replace(txt, "&yen;", ChrW(165))
-    txt = Replace(txt, "&pound;", ChrW(163))
-    txt = Replace(txt, "&cent;", ChrW(162))
+    txt = Replace(txt, "&pound;", "GBP")
+    txt = Replace(txt, "&cent;", "cent")
     txt = Replace(txt, "&quot;", """")
     txt = Replace(txt, "&apos;", "'")
     txt = Replace(txt, "&lt;", "<")
@@ -282,22 +387,35 @@ Function DecodeHtmlEntities(rawText)
         Set reNum = CreateObject("VBScript.RegExp")
         reNum.Global = True
         reNum.IgnoreCase = True
+
+        ' Decimal entities: &#123;
         reNum.Pattern = "&#([0-9]+);"
         Set matches = reNum.Execute(txt)
         For Each m In matches
             numVal = CLng(m.SubMatches(0))
-            If numVal > 0 And numVal < 65536 Then
+            If numVal = 160 Then
+                txt = Replace(txt, m.Value, " ")
+            ElseIf numVal = 9 Or numVal = 10 Or numVal = 13 Or (numVal >= 32 And numVal < 55296) Or (numVal >= 57344 And numVal <= 65533) Then
                 txt = Replace(txt, m.Value, ChrW(numVal))
+            Else
+                ' Control character entity like &#0; or &#12; -> replace with space
+                txt = Replace(txt, m.Value, " ")
             End If
         Next
+
+        ' Hexadecimal entities: &#x1f;
         reNum.Pattern = "&#x([0-9a-fA-F]+);"
         Set matches = reNum.Execute(txt)
         For Each m In matches
             On Error Resume Next
             codeVal = CLng("&H" & m.SubMatches(0))
             If Err.Number = 0 Then
-                If codeVal > 0 And codeVal < 65536 Then
+                If codeVal = 160 Then
+                    txt = Replace(txt, m.Value, " ")
+                ElseIf codeVal = 9 Or codeVal = 10 Or codeVal = 13 Or (codeVal >= 32 And codeVal < 55296) Or (codeVal >= 57344 And codeVal <= 65533) Then
                     txt = Replace(txt, m.Value, ChrW(codeVal))
+                Else
+                    txt = Replace(txt, m.Value, " ")
                 End If
             End If
             Err.Clear
@@ -339,6 +457,8 @@ Sub ParseHtmlAttributes(attrString, xmlElem, xmlDoc)
                 aVal = ""
             End If
 
+            aVal = SanitizeXmlText(aVal)
+
             On Error Resume Next
             xmlElem.setAttribute aName, aVal
             If Err.Number <> 0 Then
@@ -362,8 +482,8 @@ End Sub
 ' ==============================================================================
 Function ConvertHtmlToXml(htmlContent, charset)
     Dim xmlDoc, pi, xmlRoot
-    Dim curPos, htmlLen, ltPos, textChunk, xmlText
-    Dim endPos, commentText, xmlComment, cdataText, xmlCdata
+    Dim curPos, htmlLen, ltPos, textChunk
+    Dim endPos, commentText, cdataText
     Dim inQuote, qChar, p, ch, tagEndPos, tagContent, isSelfClosing
     Dim spacePos, tagName, attrStr, xmlElem, currentElem
     Dim closeTagName, targetIdx, j, closeTagPat, closePos, closeEndPos, rawBlock
@@ -386,8 +506,10 @@ Function ConvertHtmlToXml(htmlContent, charset)
     xmlDoc.async = False
     xmlDoc.resolveExternals = False
 
+    On Error Resume Next
     Set pi = xmlDoc.createProcessingInstruction("xml", "version=""1.0"" encoding=""" & charset & """")
-    xmlDoc.appendChild pi
+    If Not pi Is Nothing Then xmlDoc.appendChild pi
+    On Error GoTo 0
 
     Set xmlRoot = xmlDoc.createElement("html")
     xmlDoc.appendChild xmlRoot
@@ -409,8 +531,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
             textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos))
             If Len(Trim(textChunk)) > 0 Then
                 Set currentElem = elemStack(stackCount - 1)
-                Set xmlText = xmlDoc.createTextNode(textChunk)
-                currentElem.appendChild xmlText
+                SafeAppendTextNode xmlDoc, currentElem, textChunk
             End If
             Exit Do
         End If
@@ -419,8 +540,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
             textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos, ltPos - curPos))
             If Len(textChunk) > 0 Then
                 Set currentElem = elemStack(stackCount - 1)
-                Set xmlText = xmlDoc.createTextNode(textChunk)
-                currentElem.appendChild xmlText
+                SafeAppendTextNode xmlDoc, currentElem, textChunk
             End If
         End If
 
@@ -431,10 +551,8 @@ Function ConvertHtmlToXml(htmlContent, charset)
             endPos = InStr(curPos + 4, htmlContent, "-->")
             If endPos > 0 Then
                 commentText = Mid(htmlContent, curPos + 4, endPos - (curPos + 4))
-                commentText = SanitizeComment(commentText)
                 Set currentElem = elemStack(stackCount - 1)
-                Set xmlComment = xmlDoc.createComment(commentText)
-                currentElem.appendChild xmlComment
+                SafeAppendComment xmlDoc, currentElem, commentText
                 curPos = endPos + 3
             Else
                 curPos = htmlLen + 1
@@ -454,8 +572,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
             If endPos > 0 Then
                 cdataText = Mid(htmlContent, curPos + 9, endPos - (curPos + 9))
                 Set currentElem = elemStack(stackCount - 1)
-                Set xmlCdata = xmlDoc.createCDATASection(Replace(cdataText, "]]>", "]] >"))
-                currentElem.appendChild xmlCdata
+                SafeAppendCData xmlDoc, currentElem, cdataText
                 curPos = endPos + 3
             Else
                 curPos = htmlLen + 1
@@ -529,8 +646,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
                 textChunk = DecodeHtmlEntities(Mid(htmlContent, curPos))
                 If Len(Trim(textChunk)) > 0 Then
                     Set currentElem = elemStack(stackCount - 1)
-                    Set xmlText = xmlDoc.createTextNode(textChunk)
-                    currentElem.appendChild xmlText
+                    SafeAppendTextNode xmlDoc, currentElem, textChunk
                 End If
                 Exit Do
             End If
@@ -578,8 +694,7 @@ Function ConvertHtmlToXml(htmlContent, charset)
                     Set xmlElem = xmlDoc.createElement(tagName)
                     ParseHtmlAttributes attrStr, xmlElem, xmlDoc
                     If Len(rawBlock) > 0 Then
-                        Set xmlCdata = xmlDoc.createCDATASection(Replace(rawBlock, "]]>", "]] >"))
-                        xmlElem.appendChild xmlCdata
+                        SafeAppendCData xmlDoc, xmlElem, rawBlock
                     End If
                     Set currentElem = elemStack(stackCount - 1)
                     currentElem.appendChild xmlElem
@@ -617,8 +732,20 @@ Function ConvertHtmlToXml(htmlContent, charset)
         End If
     Loop
 
-    ' Serialize XML
+    ' Serialize XML defensively
+    On Error Resume Next
+    Err.Clear
     xmlResult = xmlDoc.xml
+    If Err.Number <> 0 Then
+        Err.Clear
+        If Not pi Is Nothing Then
+            xmlDoc.removeChild pi
+            Set pi = Nothing
+        End If
+        xmlResult = xmlDoc.xml
+    End If
+    On Error GoTo 0
+
     endPi = InStr(xmlResult, "?>")
     If endPi > 0 Then
         piText = Left(xmlResult, endPi)

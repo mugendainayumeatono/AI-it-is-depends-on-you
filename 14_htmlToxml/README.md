@@ -231,6 +231,12 @@ Line 1<br>Line 2<hr><img src="test.png"><input type="text" value="hello">
 
 ---
 
+### Q7: Encountered error `0xC00CE508` ("テキストの内容に無効な文字が見つかりました" / "An invalid character was found in text content").
+**Reason**: The HTML file contained disallowed XML 1.0 control codes (such as `0x00`–`0x08`, `0x0B`, `0x0C`, `0x0E`–`0x1F`, `0x7F`) or entity characters like `&nbsp;` (Unicode `U+00A0`) that cannot be encoded in Japanese `Shift_JIS` (Code Page 932).  
+**Solution**: `html2xml.vbs` incorporates automatic XML character sanitization (`SanitizeXmlText`), converts `&nbsp;` to universal ASCII spaces, safely filters numeric control entities, and uses defensive appender routines (`SafeAppendTextNode`, `SafeAppendComment`, `SafeAppendCData`) to guarantee standards-compliant XML output across all encodings.
+
+---
+
 ## Verification & Testing
 
 The repository includes a comprehensive Python test suite validating the VBScript logic and COM interactions:
@@ -246,6 +252,7 @@ This verifies:
 - `test_dom_conversion`: Checks pure MSXML DOM initialization, XML PI creation, and tree parsing (strictly forbidding deprecated `htmlfile`).
 - `test_main_workflow`: Verifies argument parsing, drag-and-drop workflow, and extension filtering.
 - `test_tokenizer_and_helpers`: Verifies HTML5 void tags, entity decoders, and attribute parsers.
+- `test_xml_character_sanitization`: Verifies XML 1.0 control character sanitization and safe DOM appenders.
 - `test_vbs_ascii_only`: Ensures zero double-byte or non-ASCII characters exist in `html2xml.vbs`.
 
 ---
