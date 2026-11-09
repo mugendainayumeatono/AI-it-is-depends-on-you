@@ -195,7 +195,7 @@ End Function
 ' ==============================================================================
 Function ConvertHtmlToXml(htmlContent, charset)
     Dim htmlDoc, xmlDoc, pi, xmlRoot
-    Dim rootAttr, rName, rVal, xmlResult, endPi
+    Dim rootAttr, rName, rVal, xmlResult, endPi, piText
 
     Set htmlDoc = CreateObject("htmlfile")
     htmlDoc.open
@@ -236,7 +236,16 @@ Function ConvertHtmlToXml(htmlContent, charset)
                         If Not IsObject(rootAttr.value) Then
                             rVal = CStr(rootAttr.value)
                         End If
+                        Err.Clear
                         xmlRoot.setAttribute rName, rVal
+                        If Err.Number <> 0 Then
+                            Err.Clear
+                            If InStr(rName, ":") > 0 Then
+                                rName = Replace(rName, ":", "_")
+                                xmlRoot.setAttribute rName, rVal
+                                If Err.Number <> 0 Then Err.Clear
+                            End If
+                        End If
                     End If
                 End If
                 On Error GoTo 0
@@ -247,13 +256,14 @@ Function ConvertHtmlToXml(htmlContent, charset)
     End If
 
     xmlResult = xmlDoc.xml
-    If InStr(xmlResult, "<?xml") = 0 Then
-        xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & vbCrLf & xmlResult
-    ElseIf InStr(xmlResult, "encoding") = 0 Then
-        endPi = InStr(xmlResult, "?>")
-        If endPi > 0 Then
+    endPi = InStr(xmlResult, "?>")
+    If endPi > 0 Then
+        piText = Left(xmlResult, endPi)
+        If InStr(piText, "encoding") = 0 Then
             xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & Mid(xmlResult, endPi + 2)
         End If
+    Else
+        xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & vbCrLf & xmlResult
     End If
 
     ConvertHtmlToXml = xmlResult
@@ -320,6 +330,7 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                                         ElseIf Not IsObject(attr.value) Then
                                             aVal = CStr(attr.value)
                                         End If
+                                        Err.Clear
                                         xmlElem.setAttribute aName, aVal
                                         If Err.Number <> 0 Then
                                             Err.Clear
@@ -358,7 +369,9 @@ Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
                 On Error Resume Next
                 commentVal = child.nodeValue
                 If Err.Number = 0 Then
-                    commentVal = Replace(commentVal, "--", "- -")
+                    Do While InStr(commentVal, "--") > 0
+                        commentVal = Replace(commentVal, "--", "- -")
+                    Loop
                     If Right(commentVal, 1) = "-" Then
                         commentVal = commentVal & " "
                     End If
