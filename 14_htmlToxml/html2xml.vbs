@@ -160,3 +160,202 @@ Sub SaveTextFile(outputPath, textContent, charset)
     stream.Close
     Set stream = Nothing
 End Sub
+
+' ==============================================================================
+' SanitizeXmlName(nameStr)
+' Sanitizes a tag or attribute name for XML compliance:
+' - Retains alphanumeric characters, hyphens, underscores, and colons
+' - Ensures it starts with a valid character (letter or underscore)
+' ==============================================================================
+Function SanitizeXmlName(nameStr)
+    Dim i, ch, clean, firstCh
+    clean = ""
+    For i = 1 To Len(nameStr)
+        ch = Mid(nameStr, i, 1)
+        If (ch >= "a" And ch <= "z") Or (ch >= "A" And ch <= "Z") Or (ch >= "0" And ch <= "9") Or ch = "_" Or ch = "-" Or ch = ":" Then
+            clean = clean & ch
+        End If
+    Next
+    If Len(clean) = 0 Then
+        SanitizeXmlName = ""
+        Exit Function
+    End If
+    firstCh = Left(clean, 1)
+    If Not ((firstCh >= "a" And firstCh <= "z") Or (firstCh >= "A" And firstCh <= "Z") Or firstCh = "_") Then
+        clean = "_" & clean
+    End If
+    SanitizeXmlName = clean
+End Function
+
+' ==============================================================================
+' ConvertHtmlToXml(htmlContent, charset)
+' Parses HTML string using MSHTML (htmlfile COM object),
+' constructs a well-formed XML DOM using MSXML2.DOMDocument,
+' and returns the XML string.
+' ==============================================================================
+Function ConvertHtmlToXml(htmlContent, charset)
+    Dim htmlDoc, xmlDoc, pi, xmlRoot
+    Dim rootAttr, rName, rVal, xmlResult
+
+    Set htmlDoc = CreateObject("htmlfile")
+    htmlDoc.open
+    htmlDoc.write htmlContent
+    htmlDoc.close
+
+    On Error Resume Next
+    Set xmlDoc = CreateObject("MSXML2.DOMDocument.6.0")
+    If xmlDoc Is Nothing Then
+        Set xmlDoc = CreateObject("MSXML2.DOMDocument")
+    End If
+    On Error GoTo 0
+
+    If xmlDoc Is Nothing Then
+        ConvertHtmlToXml = ""
+        Exit Function
+    End If
+
+    xmlDoc.async = False
+    xmlDoc.resolveExternals = False
+
+    Set pi = xmlDoc.createProcessingInstruction("xml", "version=""1.0"" encoding=""" & charset & """")
+    xmlDoc.appendChild pi
+
+    Set xmlRoot = xmlDoc.createElement("html")
+    xmlDoc.appendChild xmlRoot
+
+    If Not htmlDoc.documentElement Is Nothing Then
+        If Not htmlDoc.documentElement.attributes Is Nothing Then
+            For Each rootAttr In htmlDoc.documentElement.attributes
+                On Error Resume Next
+                If rootAttr.specified Then
+                    rName = LCase(rootAttr.name)
+                    rName = SanitizeXmlName(rName)
+                    If Len(rName) > 0 Then
+                        rVal = CStr(rootAttr.value)
+                        xmlRoot.setAttribute rName, rVal
+                    End If
+                End If
+                On Error GoTo 0
+            Next
+        End If
+
+        AppendXmlChildNodes htmlDoc.documentElement, xmlRoot, xmlDoc
+    End If
+
+    xmlResult = xmlDoc.xml
+    If InStr(xmlResult, "<?xml") = 0 Then
+        xmlResult = "<?xml version=""1.0"" encoding=""" & charset & """?>" & vbCrLf & xmlResult
+    End If
+
+    ConvertHtmlToXml = xmlResult
+
+    Set htmlDoc = Nothing
+    Set xmlDoc = Nothing
+End Function
+
+' ==============================================================================
+' AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
+' Recursively traverses MSHTML child nodes and appends corresponding
+' XML elements, text nodes, and comment nodes to xmlParentNode.
+' ==============================================================================
+Sub AppendXmlChildNodes(htmlNode, xmlParentNode, xmlDoc)
+    If htmlNode Is Nothing Then Exit Sub
+    If htmlNode.childNodes Is Nothing Then Exit Sub
+
+    Dim child, nodeTypeVal
+    Dim rawName, tagName, xmlElem
+    Dim attr, aName, aVal
+    Dim textVal, xmlText
+    Dim commentVal, xmlComment
+
+    For Each child In htmlNode.childNodes
+        On Error Resume Next
+        nodeTypeVal = child.nodeType
+        If Err.Number <> 0 Then
+            nodeTypeVal = 0
+            Err.Clear
+        End If
+        On Error GoTo 0
+
+        Select Case nodeTypeVal
+            Case 1 ' Element node
+                rawName = LCase(child.nodeName)
+                tagName = SanitizeXmlName(rawName)
+
+                If Len(tagName) > 0 Then
+                    Set xmlElem = Nothing
+                    On Error Resume Next
+                    Set xmlElem = xmlDoc.createElement(tagName)
+                    If Err.Number <> 0 Or xmlElem Is Nothing Then
+                        Err.Clear
+                        If InStr(tagName, ":") > 0 Then
+                            tagName = Replace(tagName, ":", "_")
+                            Set xmlElem = xmlDoc.createElement(tagName)
+                            If Err.Number <> 0 Then Set xmlElem = Nothing
+                        End If
+                    End If
+                    On Error GoTo 0
+
+                    If Not xmlElem Is Nothing Then
+                        If Not child.attributes Is Nothing Then
+                            For Each attr In child.attributes
+                                On Error Resume Next
+                                If attr.specified Then
+                                    aName = LCase(attr.name)
+                                    aName = SanitizeXmlName(aName)
+                                    If Len(aName) > 0 Then
+                                        If aName = "style" And IsObject(child.style) Then
+                                            aVal = child.style.cssText
+                                        Else
+                                            aVal = CStr(attr.value)
+                                        End If
+                                        xmlElem.setAttribute aName, aVal
+                                        If Err.Number <> 0 Then
+                                            Err.Clear
+                                            If InStr(aName, ":") > 0 Then
+                                                aName = Replace(aName, ":", "_")
+                                                xmlElem.setAttribute aName, aVal
+                                                If Err.Number <> 0 Then Err.Clear
+                                            End If
+                                        End If
+                                    End If
+                                End If
+                                On Error GoTo 0
+                            Next
+                        End If
+
+                        xmlParentNode.appendChild xmlElem
+                        AppendXmlChildNodes child, xmlElem, xmlDoc
+                    End If
+                End If
+
+            Case 3 ' Text node
+                textVal = ""
+                On Error Resume Next
+                textVal = child.nodeValue
+                If Err.Number = 0 And Len(textVal) > 0 Then
+                    Set xmlText = xmlDoc.createTextNode(textVal)
+                    If Err.Number = 0 And Not xmlText Is Nothing Then
+                        xmlParentNode.appendChild xmlText
+                    End If
+                End If
+                Err.Clear
+                On Error GoTo 0
+
+            Case 8 ' Comment node
+                commentVal = ""
+                On Error Resume Next
+                commentVal = child.nodeValue
+                If Err.Number = 0 Then
+                    commentVal = Replace(commentVal, "--", "- -")
+                    Set xmlComment = xmlDoc.createComment(commentVal)
+                    If Err.Number = 0 And Not xmlComment Is Nothing Then
+                        xmlParentNode.appendChild xmlComment
+                    End If
+                End If
+                Err.Clear
+                On Error GoTo 0
+        End Select
+    Next
+End Sub
+
