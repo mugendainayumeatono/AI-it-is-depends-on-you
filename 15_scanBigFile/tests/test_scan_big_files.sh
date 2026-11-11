@@ -55,6 +55,8 @@ JuiceFS:my-r2-jfs        fuse.juicefs 1099511627776  3460300    1099508167476   
 remote-storage:banwagong fuse.rclone  1099511627776        0    1099511627776       0% /custom_cloud/r2
 10.0.0.5:/export/nas     nfs4           1000000000  5000000        995000000       1% /nas_share
 /dev/sdc1                vfat             16000000  1000000         15000000       7% /usb_stick
+/dev/sdd1                exfat            32000000  2000000         30000000       7% /media/USB Disk
+rpool/USERDATA/home      zfs              50000000 10000000         40000000      20% /zfs_home
 remote:ext               fuse.rclone     100000000        0        100000000       0% $TEST_ROOT/fake_external_mount
 DF_OUT
 EOF
@@ -67,6 +69,7 @@ cat <<'LSBLK_OUT'
 /boot 0 sata 0
 /mnt/local_data_disk 0 sata 0
 /usb_stick 1 usb 1
+/media/USB Disk 1 usb 1
 LSBLK_OUT
 EOF
 chmod +x "$MOCK_BIN/lsblk"
@@ -81,7 +84,9 @@ assert_contains "$EXCLUDES" "/mnt/jfs" "Should exclude fuse.juicefs mount"
 assert_contains "$EXCLUDES" "/custom_cloud/r2" "Should exclude fuse.rclone mount at arbitrary path"
 assert_contains "$EXCLUDES" "/nas_share" "Should exclude nfs4 mount"
 assert_contains "$EXCLUDES" "/usb_stick" "Should exclude removable USB mount from lsblk"
+assert_contains "$EXCLUDES" "/media/USB Disk" "Should exclude removable USB mount with spaces in path from lsblk"
 assert_not_contains "$EXCLUDES" "/mnt/local_data_disk" "Should NOT exclude local non-removable ext4 disk under /mnt"
+assert_not_contains "$EXCLUDES" "/zfs_home" "Should NOT exclude local ZFS dataset"
 assert_not_contains "$EXCLUDES" "/boot" "Should NOT exclude /boot"
 
 echo "Task 1 tests passed!"

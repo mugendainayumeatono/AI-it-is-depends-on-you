@@ -37,7 +37,7 @@ detect_excluded_mounts() {
                 if (mp == "") mp = "/"
 
                 is_external_or_virt = 0
-                if (fs !~ /^\/dev\// || fs ~ /^\/dev\/loop/) {
+                if ((fs !~ /^\/dev\// && fstype != "zfs" && fstype != "bcachefs") || fs ~ /^\/dev\/loop/) {
                     is_external_or_virt = 1
                 }
                 if (fstype ~ /^(fuse(\..*)?|nfs[0-9]*|cifs|smb[0-9]*|smbfs|tmpfs|devtmpfs|squashfs|overlay|iso9660|udf|autofs|ceph|glusterfs|9p|davfs|sshfs|proc|sysfs|cgroup[0-9]*|debugfs|tracefs|securityfs|pstore|efivarfs|mqueue|hugetlbfs|binfmt_misc|configfs|fusectl|ramfs|vboxsf|vmhgfs-fuse)$/) {
@@ -52,23 +52,33 @@ detect_excluded_mounts() {
         # Parse lsblk to detect removable / USB block devices
         if command -v "$LSBLK_CMD" >/dev/null 2>&1 || [[ -x "$LSBLK_CMD" ]]; then
             "$LSBLK_CMD" -nrpo MOUNTPOINT,RM,TRAN,HOTPLUG 2>/dev/null | awk '
-                $1 ~ /^\// {
-                    mp = $1
-                    sub(/\/+$/, "", mp)
-                    if (mp == "" || mp == "/") next
+                $1 ~ /^\// && NF >= 3 {
                     is_removable = 0
-                    if (NF >= 4) {
+                    if ($(NF-1) ~ /^[01]$/) {
+                        rm = $(NF-1)
+                        hotplug = $NF
+                        mp_end = NF - 2
+                        if (rm == "1" || hotplug == "1") {
+                            is_removable = 1
+                        }
+                    } else if (NF >= 4) {
                         rm = $(NF-2)
                         tran = $(NF-1)
                         hotplug = $NF
+                        mp_end = NF - 3
                         if (rm == "1" || hotplug == "1" || tolower(tran) == "usb") {
                             is_removable = 1
                         }
-                    } else if (NF == 3) {
-                        if ($2 == "1" || $3 == "1") {
-                            is_removable = 1
-                        }
+                    } else {
+                        next
                     }
+                    mp = $1
+                    for (i = 2; i <= mp_end; i++) {
+                        mp = mp " " $i
+                    }
+                    gsub(/\\x20/, " ", mp)
+                    sub(/\/+$/, "", mp)
+                    if (mp == "" || mp == "/") next
                     if (is_removable) {
                         print mp
                     }
