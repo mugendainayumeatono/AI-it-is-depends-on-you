@@ -225,7 +225,7 @@ main() {
 
     if [[ -n "$excludes_list" ]]; then
         local excludes_inline
-        excludes_inline="$(printf '%s\n' "$excludes_list" | paste -sd ', ' -)"
+        excludes_inline="$(printf '%s\n' "$excludes_list" | awk '{printf "%s%s", (NR>1 ? ", " : ""), $0} END {print ""}')"
         echo "已自动排除虚拟文件系统与外部存储挂载点: $excludes_inline"
     else
         echo "已自动排除虚拟文件系统与外部存储挂载点: (无)"
