@@ -269,7 +269,9 @@ sequenceDiagram
    在编写重构型 Agent 时，声明 `workspace: branch`。Agent 会在 Git Worktree 独立工作区中进行试验与测试，即便执行失败也绝不污染当前工作区未提交的工作进度。
 4. **编写详尽有区分度的 `description`**：
    Agent 的 `description` 是主模型决策“该委托给谁”的唯一依据。请清晰说明“本 Agent 擅长做什么”以及“在什么情况下应当调用它”。
-5. **配置工具权限时切忌混入 MCP 工具名或未注册组件（严防 Executor 构建失败）**：
+5. **配置工具权限时切忌混用新旧工具别名、混入 MCP 工具名或未注册组件（严防 Executor 构建失败）**：
+   - **严禁同时声明新版工具名与旧版兼容别名**：`view_file`、`write_to_file`、`replace_file_content` 会在底层被重写并构造为 `read_file`、`write_file`、`edit_file`。若在 `tools:` 中同时书写新旧名称（如同时写 `read_file` 和 `view_file`），会因构造出两个同名工具实例而报错 `failed to construct executor: tool name conflict: multiple tools resolved with name "read_file"`。
+   - **清理已废弃的空操作工具**：`multi_replace_file_content`、`notebook_edit`、`list_dir`、`find_by_name`、`grep_search`、`read_url_content` 在当前运行时已废弃（日志提示 `Tool "..." is deprecated and has no effect`），无需再写入 `tools:`。
    - 在 `agent.md` 的 `tools:` 列表中，**绝不能写 `call_mcp_tool`、`list_resources`、`read_resource`**（MCP 是通过 `inheritMcp: true` 自动挂载的）。
    - 严禁盲目堆砌未在 Registry 中注册的工具名（如 `view_file_outline`、`open_browser_url` 等），否则运行时会抛出 `unknown component: tool ... not found in registry` 并拒绝启动。
    - 修改完 Agent 配置后，务必通过 `agy --agent <name> -p "ping"` 进行端到端真实测试。详见 [底层深度参考手册第 8 节排错复盘](antigravity_agent_config_deep_reference.md#8-实战踩坑记录与排错案例post-mortem-未注册工具与-mcp-冲突导致-executor-启动失败)。

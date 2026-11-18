@@ -320,3 +320,5 @@ commandExecutionPolicy: default
    如果子任务不需要连接数据库或 GitHub，将其 `inheritMcp` 设为 `false`，能让子 Agent 的上下文更加轻盈纯粹，提升推理准确率。
 4. **通过 `Alt + J` 及时处理子 Agent 的工具权限请求**：
    如果子 Agent 运行在后台需要执行某些高危命令（处于 `Ask` 策略），留意终端状态条提示，按 `Alt + J` 唤起 Agent 管理面板即可完成一键审批。
+5. **在 `agent.md` 的 `tools:` 中切勿同时声明新版工具名与旧版兼容别名**：
+   Antigravity 底层会将旧版别名 `view_file`、`write_to_file`、`replace_file_content` 自动重写并构造为 `read_file`、`write_file`、`edit_file`。若在 `tools:` 中同时声明新旧名称（例如同时包含 `read_file` 与 `view_file`），会导致构造出两个名称均为 `"read_file"` 的工具实例，触发 `failed to construct executor: tool name conflict: multiple tools resolved with name "read_file"` 致命错误。此外，`multi_replace_file_content`、`notebook_edit`、`list_dir`、`find_by_name`、`grep_search`、`read_url_content` 已废弃且无实际效果（`is deprecated and has no effect`），统一使用标准原生工具名（`read_file`、`write_file`、`edit_file` 等）即可。

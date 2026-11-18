@@ -11,7 +11,7 @@
 3. [核心机制深度解析（基于二进制实现验证）](#3-核心机制深度解析基于二进制实现验证)
    - 3.1 [主/子 Agent 身份控制（`mainAgent` vs `subagent`）](#31-主子-agent-身份控制mainagent-vs-subagent)
    - 3.2 [工具权限控制机制（`allowAllTools` vs `tools`）](#32-工具权限控制机制allowalltools-vs-tools)
-   - 3.3 [工具类别别名与底层工具映射表](#33-工具类别别名与底层工具映射表)
+   - 3.3 [工具名称映射、兼容别名与废弃状态对照表](#33-工具名称映射兼容别名与废弃状态对照表)
    - 3.4 [Skill 与 Rule 发现机制及路径解析规则](#34-skill-与-rule-发现机制及路径解析规则)
    - 3.5 [如何让特定 Agent 使用已禁用插件（Disabled Plugin）中的 Skill](#35-如何让特定-agent-使用已禁用插件disabled-plugin中的-skill)
 4. [全局与工作区配置文件规范（`config.json` / `settings.json` / `mcp.json`）](#4-全局与工作区配置文件规范configjson--settingsjson--mcpjson)
@@ -140,46 +140,42 @@ flowchart TD
 1. **省略 `tools:` 时的默认安全降级**：
    - 系统为了防止自定义子 Agent 默认拥有破坏性写权限，当 `agent.md` 未显式声明 `tools:` 时，会在 `0x7baa79e` 处自动将工具集赋值为 `0xb9e5af0` 处的 6 个基础只读工具（`send_message`、`view_file`、`read_url_content`、`search_web`、`schedule`、`generate_image`），并在 `0x7babb00` 处因检测到 `tools` 中不含 `invoke_subagent` / `define_subagent` 而自动剥离 `subagents` 系统提示词段落及子代理派发工具。
 2. **全量工具开启方式（显式声明完整 `tools:` 列表）**：
-   - 要让自定义主 Agent（如 `superpowers`）拥有完整工具权限与所有 MCP 服务，**必须在 `agent.md` 的 `tools:` 字段中仅声明合法注册的工具名称**，并通过 `inheritMcp: true` 自动挂载 MCP 工具：
-     - 文件读写：`read_file`、`view_file`、`write_file`、`write_to_file`、`edit_file`、`replace_file_content`、`multi_replace_file_content`、`notebook_edit`
-     - 目录与检索：`list_dir`、`find_by_name`、`grep_search`
+   - 要让自定义主 Agent（如 `superpowers`）拥有完整工具权限与所有 MCP 服务，**必须在 `agent.md` 的 `tools:` 字段中仅声明合法的标准原生工具名称**，并通过 `inheritMcp: true` 自动挂载 MCP 工具：
+     - 文件读写与编辑：`read_file`、`write_file`、`edit_file`
      - 终端与任务：`run_command`、`manage_task`、`schedule`
      - 多智能体协同：`invoke_subagent`、`define_subagent`、`manage_subagents`、`send_message`
-     - 交互与扩展：`ask_question`、`search_web`、`read_url_content`、`generate_image`、`list_plugin_accounts`
+     - 交互与扩展：`ask_question`、`search_web`、`generate_image`、`list_plugin_accounts`
+     - **严禁混用新旧工具别名**：`view_file`、`write_to_file`、`replace_file_content` 在底层（`0x7e87c72..0x7e87da5`）会被重写并构造为 `read_file`、`write_file`、`edit_file`。若在 `tools:` 中同时书写新版名称与旧版别名，会构造出两个同名工具实例并触发致命错误：`failed to construct executor: tool name conflict: multiple tools resolved with name "read_file"`。
+     - **清理已废弃的空操作（No-op）工具**：`multi_replace_file_content`、`notebook_edit`、`list_dir`、`find_by_name`、`grep_search`、`read_url_content` 在当前运行时已映射为 `deprecatedEmptyTool`（在日志 `registry.go:71` 中输出 `Tool "..." is deprecated and has no effect`），不应再写入 `tools:`。
      - **MCP 工具与资源**：通过配置 `inheritMcp: true` 由系统自动注入，**严禁**在 `tools:` 列表中书写 `call_mcp_tool`、`list_resources`、`read_resource`，否则后端 registry 会报错 `unknown component: tool not found in registry`。
      - **注意**：部分遗留或实验性工具名（如 `view_file_outline`、`view_code_item`、`code_search`、`moma_search`、`manage_inbox`、`view_content_chunk`、`open_browser_url`、`run-workflow`）未在当前 Antigravity 运行时的组件注册表（Registry）中注册，如果在 `tools:` 中显式包含它们，会导致 `failed to construct executor: failed to resolve components` 启动失败。
 
 ---
 
-### 3.3 工具类别别名与底层工具映射表
+### 3.3 工具名称映射、兼容别名与废弃状态对照表
 
-如果在 `agent.md` 中使用 `tools:` 白名单，既可以填写**工具类别（Category）**，也可以填写**单个工具名**：
+在底层 `oneharness/internal/tools/registry.go` 与 `cortex/core/tools/registry.go` 中，不同工具名的解析行为如下：
 
-#### （1）工具类别别名（Categories）
-
-| 类别名（在 `tools:` 中书写） | 包含的底层能力 |
-| :--- | :--- |
-| **`read`** | 读取文件内容、查看代码大纲与符号定义（`read_file` / `view_file`、`view_file_outline`、`view_code_item`） |
-| **`edit`**（或 **`write`**） | 创建、覆盖、追加、精确修改文件（`write_file` / `write_to_file`、`edit_file` / `replace_file_content` / `multi_replace_file_content`） |
-| **`search`** | 正则内容搜索与文件名检索（`grep_search`、`find_by_name`） |
-| **`command`**（或 **`bash`** / **`exec`** / **`shell`**） | 执行终端命令与管理后台任务（`run_command`、`command_status`、`send_command_input`、`terminate_command` / `manage_task`） |
-| **`web`** | 网页搜索与 URL 内容抓取（`search_web`、`read_url_content`、`view_content_chunk`） |
-| **`mcp`** | 调用 MCP 工具与读取 MCP 资源（`call_mcp_tool`、`list_resources`、`read_resource`） |
-
-#### （2）常用外部工具名与底层工具名对照表
-
-| `tools:` 中支持的外部名称 | 底层运行时工具名 | 功能说明 |
-| :--- | :--- | :--- |
-| `Read` / `view_file` / `read_file` | `read_file` | 读取文件 |
-| `Write` / `write_to_file` / `write_file` | `write_file` | 创建或覆写文件 |
-| `Edit` / `replace_file_content` / `edit_file` | `edit_file` | 精确替换文件内容 |
-| `Search` / `Grep` / `grep_search` | `grep_search` | 内容搜索 |
-| `Find` / `Glob` / `find_by_name` | `find_by_name` | 按文件名查找 |
-| `Bash` / `RunCommand` / `run_command` | `run_command` | 运行 Shell 命令 |
-| `Task` / `invoke_subagent` | `invoke_subagent` | 启动子 Agent |
-| `AskQuestion` / `ask_question` | `ask_question` | 向用户发起结构化提问 |
-| `WebSearch` / `search_web` | `search_web` | 联网搜索 |
-| `WebFetch` / `read_url_content` | `read_url_content` | 读取网页 URL 内容 |
+| 配置名称 | 底层解析行为 | 最终构造的运行时工具名 | 状态与配置建议 |
+| :--- | :--- | :--- | :--- |
+| **`read_file`** | 标准原生工具 | `read_file` | ✅ **推荐标准写法**（读取文件/图片/PDF） |
+| **`view_file`** | 旧版兼容别名（重写为 `read_file`） | `read_file` | ⚠️ **禁止与 `read_file` 同时声明**，否则引发 `tool name conflict` |
+| **`write_file`** | 标准原生工具 | `write_file` | ✅ **推荐标准写法**（创建/覆写/追加文件） |
+| **`write_to_file`** | 旧版兼容别名（重写为 `write_file`） | `write_file` | ⚠️ **禁止与 `write_file` 同时声明**，否则引发 `tool name conflict` |
+| **`edit_file`** | 标准原生工具 | `edit_file` | ✅ **推荐标准写法**（精确替换文件内容） |
+| **`replace_file_content`** | 旧版兼容别名（重写为 `edit_file`） | `edit_file` | ⚠️ **禁止与 `edit_file` 同时声明**，否则引发 `tool name conflict` |
+| **`run_command`** | 标准原生工具 | `run_command` | ✅ **推荐标准写法**（运行 Shell 命令） |
+| **`manage_task`** | 标准原生工具 | `manage_task` | ✅ **推荐标准写法**（管理后台任务与标准输入） |
+| **`schedule`** | 标准原生工具 | `schedule` | ✅ **推荐标准写法**（定时与 Cron 调度） |
+| **`invoke_subagent`** | 标准原生工具 | `invoke_subagent` | ✅ **推荐标准写法**（调用子 Agent） |
+| **`define_subagent`** | 标准原生工具 | `define_subagent` | ✅ **推荐标准写法**（动态定义子 Agent） |
+| **`manage_subagents`** | 标准原生工具 | `manage_subagents` | ✅ **推荐标准写法**（管理活跃子 Agent） |
+| **`send_message`** | 标准原生工具 | `send_message` | ✅ **推荐标准写法**（Agent 间消息通信） |
+| **`ask_question`** | 标准原生工具 | `ask_question` | ✅ **推荐标准写法**（向用户发起结构化提问） |
+| **`search_web`** | 标准原生工具 | `search_web` | ✅ **推荐标准写法**（联网搜索） |
+| **`generate_image`** | 标准原生工具 | `generate_image` | ✅ **推荐标准写法**（生成或编辑图像） |
+| **`list_plugin_accounts`** | 标准原生工具 | `list_plugin_accounts` | ✅ **推荐标准写法**（查看插件与 MCP 账号状态） |
+| `multi_replace_file_content` / `notebook_edit` / `list_dir` / `find_by_name` / `grep_search` / `read_url_content` | `deprecatedEmptyTool`（空实现） | *不生成工具实例* | 🚫 **已废弃且无实际效果**（触发 `registry.go:71` 警告，建议移除） |
 
 ---
 
@@ -354,7 +350,7 @@ flowchart LR
 }
 ```
 
-**步骤 2：创建 [agent.md](file:///home/mickey/.gemini/config/agents/superpowers/agent.md#L1-L62)**
+**步骤 2：创建 [agent.md](file:///home/mickey/.gemini/config/agents/superpowers/agent.md#L1-L53)**
 ```markdown
 ---
 name: superpowers
@@ -369,23 +365,14 @@ tools:
   - manage_task
   - schedule
   - read_file
-  - view_file
   - write_file
-  - write_to_file
   - edit_file
-  - replace_file_content
-  - multi_replace_file_content
-  - notebook_edit
-  - list_dir
-  - find_by_name
-  - grep_search
   - invoke_subagent
   - define_subagent
   - manage_subagents
   - send_message
   - ask_question
   - search_web
-  - read_url_content
   - generate_image
   - list_plugin_accounts
 rules:
@@ -544,11 +531,12 @@ tools:
    - 主子皆可：`mainAgent: true` + `subagent: true`
 2. **确认工具权限范围**：
    - **需要全权限**：必须显式列出所有合法的 Registry 原生工具（详见 3.2 与第 8 节白名单），同时设置 **`inheritMcp: true`** 自动挂载全部 MCP 工具。
-   - **三大避坑红线**：
+   - **四大避坑红线**：
+     - ❌ **严禁在 `tools:` 中同时声明新版工具名与旧版兼容别名**（如同时写 `read_file` 与 `view_file`、`write_file` 与 `write_to_file`、`edit_file` 与 `replace_file_content`），否则底层构造两个同名工具实例并触发 `tool name conflict: multiple tools resolved with name "read_file"`。
      - ❌ **严禁在 `tools:` 中声明 MCP 调度工具**（如 `call_mcp_tool`、`list_resources`、`read_resource`），它们由 `inheritMcp: true` 自动注入，写入会导致 Executor 构造失败。
-     - ❌ **严禁写入未注册的过时或内部工具**（如 `view_file_outline`、`code_search`、`open_browser_url`、`run-workflow` 等）。
+     - ❌ **严禁写入未注册的过时或内部工具**（如 `view_file_outline`、`code_search`、`open_browser_url`、`run-workflow` 等），并移除已废弃的空操作工具（`multi_replace_file_content`、`notebook_edit`、`list_dir`、`find_by_name`、`grep_search`、`read_url_content`）。
      - ❌ **不要依赖 `allowAllTools: true`**（底层 Go 结构体无此字段，全权限必须通过合法的显式 `tools:` 白名单 + `inheritMcp: true` 组合实现）。
-   - **需要受限权限**：可使用工具类别别名（如 `tools: [read, search, command]`）或指定具体的合法工具名。
+   - **需要受限权限**：可指定具体的合法标准工具名（如 `tools: [read_file, run_command]`）。
    - **修改后必须验证**：必须运行 `agy --agent <name> -p "ping"` 进行真实端到端测试，严禁仅凭 `agy agents` 列表命令判定配置成功。
 3. **确认 Skill 与 Rule 加载方式**：
    - 若引用的是**已启用插件或全局目录**中的 Skill，设置 `inheritCustomizations: true` 即可自动继承。
@@ -562,7 +550,9 @@ tools:
 
 ### 8.1 故障现场与错误重现
 
-在为 `superpowers` Agent 配置全量权限时，直接启动或通过 `agy --agent superpowers` 执行任务出现以下致命错误，导致 Agent 完全无法使用：
+#### 案例一：写入未注册组件与 MCP 内部调度名导致 `unknown component`
+
+在为 `superpowers` Agent 配置全量权限时，直接启动或通过 `agy --agent superpowers` 执行任务出现以下致命错误：
 
 ```text
 ⚠ failed to construct executor: failed to resolve components: 
@@ -580,19 +570,48 @@ unknown component: tool "read_resource" not found in registry
 Error ID: 6d0b61c3-86c1-47c1-9f0e-4fb5417730f3-1
 ```
 
+#### 案例二：同时声明新旧工具别名导致 `tool name conflict`
+
+在剔除上述 `unknown component` 后，将新版工具名与旧版兼容别名一并写入 `tools:`，触发了第二个致命错误（伴随 6 条废弃工具警告）：
+
+```text
+⚠ failed to construct executor: tool name conflict: multiple tools resolved with name "read_file"
+Error ID: 55a230da-183f-4837-a6e8-3e21ec75e0f5-1
+```
+
+对应的 CLI 运行日志（`~/.gemini/antigravity-cli/log/cli-*.log`）：
+```text
+W1110 20:53:40.523422    3129 registry.go:71] Tool "multi_replace_file_content" is deprecated and has no effect
+W1110 20:53:40.525357    3129 registry.go:71] Tool "notebook_edit" is deprecated and has no effect
+W1110 20:53:40.525501    3129 registry.go:71] Tool "list_dir" is deprecated and has no effect
+W1110 20:53:40.525527    3129 registry.go:71] Tool "find_by_name" is deprecated and has no effect
+W1110 20:53:40.526246    3129 registry.go:71] Tool "grep_search" is deprecated and has no effect
+W1110 20:53:40.541202    3129 registry.go:71] Tool "read_url_content" is deprecated and has no effect
+E1110 20:53:40.632199    3129 errorreport.go:273] failed to construct executor: tool name conflict: multiple tools resolved with name "read_file"
+```
+
 ### 8.2 错误根因剖析（What Went Wrong?）
 
-经过排查与底层机制比对，该事故由以下三大技术误区共同导致：
+经过排查与底层机制比对，上述两起事故由以下四大技术误区导致：
 
-1. **混淆了“原生内置工具”与“MCP 协议调度器”的挂载机制**：
+1. **同时声明了“标准工具名”与“旧版兼容别名”（引发 `tool name conflict`）**：
+   - **错误做法**：在 `tools:` 中同时写上了 `read_file` 与 `view_file`、`write_file` 与 `write_to_file`、`edit_file` 与 `replace_file_content`。
+   - **底层机制**：在 `cortex/core/tools/tools.Construct`（地址 `0x9248c80` 调用 `0x7e89980` 查表 `0x7e87c72..0x7e87da5`）中，系统会将旧版别名自动重写为新版标准工具名：
+     - `view_file` $\rightarrow$ `read_file`（构造 `ReadFileTool`，`.Name()` 返回 `"read_file"`）
+     - `write_to_file` $\rightarrow$ `write_file`（构造 `WriteFileTool`，`.Name()` 返回 `"write_file"`）
+     - `replace_file_content` $\rightarrow$ `edit_file`（构造 `EditFileTool`，`.Name()` 返回 `"edit_file"`）
+   - 当两者同时出现在 `tools:` 中时，组件加载器不会去重配置名，而是分别构造了两个 `Name() == "read_file"` 的工具实例。随后在 Executor 初始化校验唯一工具名时，立即报错 `multiple tools resolved with name "read_file"`。
+   - 此外，`multi_replace_file_content`、`notebook_edit`、`list_dir`、`find_by_name`、`grep_search`、`read_url_content` 在 `cortex/core/tools/tools.init`（`0x924392c..0x9243c4f`）中已被注册为 `deprecatedEmptyTool`，调用时仅打印 `Tool %q is deprecated and has no effect` 并返回空，没有任何实际作用。
+
+2. **混淆了“原生内置工具”与“MCP 协议调度器”的挂载机制**：
    - **错误做法**：在 `agent.md` 的 `tools:` 列表中手动写上了 `call_mcp_tool`、`list_resources`、`read_resource`。
    - **底层机制**：在 Antigravity 架构中，MCP 工具与资源是外部扩展协议层，由 **`inheritMcp: true`** 或 `mcpServers:` 字段激活并自动注入会话上下文。它们**不是**系统的原生组件（Component Registry），后端 Component Registry 根本不存在名为 `call_mcp_tool` 的工具条目。当这些名称出现在 `tools:` 列表时，Executor 在构造阶段会去 Registry 按原生工具寻找，最终因组件缺失报错崩溃。
 
-2. **盲目堆砌未注册的内部/过时工具名**：
+3. **盲目堆砌未注册的内部/过时工具名**：
    - **错误做法**：在追求“赋予 Agent 全部权限”时，直接将各类历史文档、内部原型或其他 harness 中提及的工具名（`view_file_outline`、`view_code_item`、`code_search`、`moma_search`、`manage_inbox`、`view_content_chunk`、`open_browser_url`、`run-workflow`）一并写入 `tools:`。
    - **底层机制**：Antigravity 的 Executor 采用强类型注册检查，所有在 `tools:` 声明的项必须 100% 存在于当前版本的 Component Registry 中。只要有任何一个未知名称，整个 Executor 就会中断构建。
 
-3. **测试验证盲区（假阴性陷阱）**：
+4. **测试验证盲区（假阴性陷阱）**：
    - **错误做法**：修改 `agent.md` 后，仅运行了 `agy agents` 检查。
    - **底层机制**：`agy agents` 仅对 `agent.md` 的 YAML Frontmatter 进行基础的格式语法反序列化，**不会触发 Executor 的组件构建与实例化流程**。因此在 `agy agents` 中显示正常，但用户一旦实际发起对话或运行命令就会立刻崩溃。
 
@@ -600,8 +619,8 @@ Error ID: 6d0b61c3-86c1-47c1-9f0e-4fb5417730f3-1
 
 ### 8.3 正确做法与规范配置模板
 
-#### 1. 合法工具白名单（经 Registry 严格校验）
-若需给自定义 Agent 授予全部原生工具权限，只能使用以下在当前 Registry 中确认存在的合法工具：
+#### 1. 合法标准工具白名单（经 Registry 严格校验，无别名冲突、无废弃项）
+若需给自定义 Agent 授予全部原生工具权限，应且仅应使用以下 14 个标准原生工具名：
 
 ```yaml
 tools:
@@ -609,29 +628,18 @@ tools:
   - run_command
   - manage_task
   - schedule
-  # 2. 文件读取、查看与定位
+  # 2. 文件读取、写入与编辑（仅用标准名，切勿混写 view_file / write_to_file / replace_file_content）
   - read_file
-  - view_file
-  - list_dir
-  - find_by_name
-  - grep_search
-  # 3. 文件修改、写入与编辑
   - write_file
-  - write_to_file
   - edit_file
-  - replace_file_content
-  - multi_replace_file_content
-  - notebook_edit
-  # 4. 子代理生命周期与消息通信
+  # 3. 子代理生命周期与消息通信
   - invoke_subagent
   - define_subagent
   - manage_subagents
   - send_message
-  # 5. 网页搜索与内容抓取
-  - search_web
-  - read_url_content
-  # 6. 用户交互与多模态
+  # 4. 用户交互、网页检索与多模态扩展
   - ask_question
+  - search_web
   - generate_image
   - list_plugin_accounts
 ```
@@ -650,11 +658,11 @@ mcpServers:
 ```
 
 #### 3. 规范的全权限 Agent 完整示例（黄金模板）
-文件位置：`~/.gemini/config/agents/superpowers/agent.md`
+文件位置：[agent.md](file:///home/mickey/.gemini/config/agents/superpowers/agent.md#L1-L53)
 ```yaml
 ---
 name: superpowers
-description: 启用全部技能（superpowers 及全局技能）、全部 MCP 服务与完整工具权限的主 Agent。
+description: 启用全部技能（superpowers 及全局技能）、全部 MCP 服务与完整工具权限的主 Agent（仅允许作为主 Agent 运行，禁止作为子 Agent 调用）。
 model: inherit
 mainAgent: true
 subagent: false
@@ -665,23 +673,14 @@ tools:
   - manage_task
   - schedule
   - read_file
-  - view_file
   - write_file
-  - write_to_file
   - edit_file
-  - replace_file_content
-  - multi_replace_file_content
-  - notebook_edit
-  - list_dir
-  - find_by_name
-  - grep_search
   - invoke_subagent
   - define_subagent
   - manage_subagents
   - send_message
   - ask_question
   - search_web
-  - read_url_content
   - generate_image
   - list_plugin_accounts
 rules:
