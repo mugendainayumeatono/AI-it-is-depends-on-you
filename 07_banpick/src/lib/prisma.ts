@@ -10,6 +10,7 @@ declare global {
 
 const prisma = globalThis.prisma ?? prismaClientSingleton()
 
-export default prisma
+// Cache on globalThis in both dev and warm serverless production lambdas
+globalThis.prisma = prisma
 
-if (process.env.NODE_ENV !== 'production') globalThis.prisma = prisma
+export default prisma

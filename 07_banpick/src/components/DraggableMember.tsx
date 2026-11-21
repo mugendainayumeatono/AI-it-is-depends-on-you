@@ -1,18 +1,27 @@
 'use client'
 
+import { memo } from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { Member } from '@/types'
+import type { Member } from '@/types'
 
-export default function DraggableMember({ member, disabled, isOverlay }: { member: Member, disabled?: boolean, isOverlay?: boolean }) {
+interface Props {
+  member: Member
+  disabled?: boolean
+  isOverlay?: boolean
+}
+
+function DraggableMember({ member, disabled, isOverlay }: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: member.id,
     disabled: disabled || !!member.teamId,
   })
 
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: isDragging ? 100 : 1,
-  } : undefined
+  const style = transform
+    ? {
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        zIndex: isDragging ? 100 : 1,
+      }
+    : undefined
 
   return (
     <div
@@ -27,12 +36,22 @@ export default function DraggableMember({ member, disabled, isOverlay }: { membe
         ${!isOverlay && isDragging ? 'opacity-0' : ''}
       `}
     >
-      {member.background && <img src={member.background} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
-      
-      {member.avatar && (
-        <img src={member.avatar} alt={member.name} className="w-12 h-12 rounded-full object-cover border-2 border-gray-500 relative z-10 pointer-events-none" />
+      {member.background && (
+        <img
+          src={member.background}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none"
+        />
       )}
-      
+
+      {member.avatar && (
+        <img
+          src={member.avatar}
+          alt={member.name}
+          className="w-12 h-12 rounded-full object-cover border-2 border-gray-500 relative z-10 pointer-events-none"
+        />
+      )}
+
       <div className="relative z-10 pointer-events-none">
         <p className="font-bold text-lg text-gray-100">{member.name}</p>
         {member.info && <p className="text-xs text-gray-400 whitespace-pre-wrap">{member.info}</p>}
@@ -40,3 +59,5 @@ export default function DraggableMember({ member, disabled, isOverlay }: { membe
     </div>
   )
 }
+
+export default memo(DraggableMember)

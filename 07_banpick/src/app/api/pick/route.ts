@@ -1,113 +1,117 @@
 import { NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
-import { triggerStateUpdate } from '@/lib/pusher'
+import { materializeState } from '@/lib/gameEngine'
+import { publishRealtimeEvent } from '@/lib/realtime'
+import { getStateStore } from '@/lib/stateStore'
+import type { GameMutation, MutationErrorResponse, MutationSuccessResponse } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store',
+} as const
+
+function fallbackMutationId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  return `mut_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
 export async function POST(req: Request) {
   try {
-    const { memberId, teamId, status, action } = await req.json()
-
-    if (status === 'START') {
-      const updatedState = await prisma.gameState.update({
-        where: { id: 'singleton' },
-        data: {
-          status: 'PICKING',
-          turnStartTime: new Date(),
-          currentTeamIndex: 0,
-        },
-      })
-      
-      const [teams, members] = await Promise.all([
-        prisma.team.findMany({ include: { members: true }, orderBy: { order: 'asc' } }),
-        prisma.member.findMany({ orderBy: { name: 'asc' } }),
-      ])
-
-      await triggerStateUpdate()
-      return NextResponse.json({ 
-        success: true, 
-        gameState: updatedState, 
-        teams, 
-        members,
-        serverTime: new Date().toISOString()
-      })
-    }
-
-    const gameState = await prisma.gameState.findUnique({ where: { id: 'singleton' } })
-    if (!gameState || gameState.status !== 'PICKING') {
-      return NextResponse.json({ error: 'Not in picking phase' }, { status: 400 })
-    }
-
-    const teams = await prisma.team.findMany({ orderBy: { order: 'asc' } })
-    const currentTeam = teams[gameState.currentTeamIndex]
-
-    let finalMemberId = memberId
-    if (action === 'AUTO_PICK') {
-      const availableMembers = await prisma.member.findMany({ where: { teamId: null, isBanned: false } })
-      if (availableMembers.length === 0) return NextResponse.json({ success: true })
-      finalMemberId = availableMembers[Math.floor(Math.random() * availableMembers.length)].id
-    } else {
-      if (currentTeam.id !== teamId) {
-        return NextResponse.json({ error: 'Not your turn' }, { status: 400 })
-      }
-    }
-
-    // Calculate time used
-    const now = new Date()
-    const elapsedSeconds = Math.floor((now.getTime() - new Date(gameState.turnStartTime).getTime()) / 1000)
-    const extraTime = Math.max(0, elapsedSeconds - gameState.turnDuration)
-
-    // Update team reserve time
-    let newReserveTime = Math.max(0, currentTeam.reserveTime - extraTime)
-    
-    // If it's an auto-pick, it means the reserve time is exhausted
-    if (action === 'AUTO_PICK') {
-      newReserveTime = 0
-    }
-
+    let body: Record<string, unknown>
     try {
-      await prisma.$transaction([
-        prisma.member.update({
-          where: { id: finalMemberId },
-          data: { teamId: currentTeam.id, pickedAt: now },
-        }),
-        prisma.team.update({
-          where: { id: currentTeam.id },
-          data: { reserveTime: newReserveTime },
-        }),
-        prisma.gameState.update({
-          where: { 
-            id: 'singleton',
-            turnStartTime: gameState.turnStartTime // Optimistic concurrency control: ensure turn hasn't changed
-          },
-          data: {
-            currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
-            turnStartTime: now,
-          },
-        }),
-      ])
-    } catch (e: unknown) {
-      // P2025 means the record was not found (meaning turnStartTime changed)
-      if (typeof e === 'object' && e !== null && 'code' in e && (e as { code?: string }).code === 'P2025') {
-        return NextResponse.json({ error: 'Turn has already been taken' }, { status: 409 })
-      }
-      throw e;
+      body = (await req.json()) as Record<string, unknown>
+    } catch {
+      return NextResponse.json<MutationErrorResponse>(
+        { success: false, error: 'Invalid JSON request body', code: 'INVALID_JSON' },
+        { status: 400, headers: NO_STORE_HEADERS }
+      )
     }
 
-    // Check if all members picked
-    const remainingMembers = await prisma.member.count({ where: { teamId: null, isBanned: false } })
-    if (remainingMembers === 0) {
-      await prisma.gameState.update({
-        where: { id: 'singleton' },
-        data: { status: 'COMPLETED' },
+    const mutationId =
+      typeof body.mutationId === 'string' && body.mutationId.trim() !== ''
+        ? body.mutationId
+        : fallbackMutationId()
+    const clientId = typeof body.clientId === 'string' ? body.clientId : undefined
+    const expectedVersion =
+      typeof body.expectedVersion === 'number' && Number.isFinite(body.expectedVersion)
+        ? body.expectedVersion
+        : undefined
+
+    let mutation: GameMutation
+    if (body.status === 'START') {
+      mutation = {
+        type: 'START',
+        mutationId,
+        clientId,
+        expectedVersion,
+      }
+    } else if (body.action === 'AUTO_PICK') {
+      mutation = {
+        type: 'AUTO_PICK',
+        mutationId,
+        clientId,
+        teamId: typeof body.teamId === 'string' && body.teamId !== '' ? body.teamId : undefined,
+        expectedVersion,
+      }
+    } else {
+      mutation = {
+        type: 'PICK',
+        mutationId,
+        clientId,
+        memberId: typeof body.memberId === 'string' ? body.memberId : '',
+        teamId: typeof body.teamId === 'string' ? body.teamId : '',
+        expectedVersion,
+      }
+    }
+
+    const store = getStateStore()
+    const result = await store.mutate(mutation)
+    const materialized = materializeState(result.snapshot)
+
+    if (!result.ok) {
+      const errorPayload: MutationErrorResponse = {
+        success: false,
+        error: result.error,
+        code: result.code,
+        version: materialized.version,
+        serverTime: materialized.serverTime,
+        gameState: materialized.gameState,
+        teams: materialized.teams,
+        members: materialized.members,
+      }
+      return NextResponse.json(errorPayload, {
+        status: result.status,
+        headers: NO_STORE_HEADERS,
       })
     }
 
-    await triggerStateUpdate()
+    if (!result.alreadyApplied) {
+      publishRealtimeEvent(result.event, {
+        skipRedisPublish: result.publishedToRedis ?? true,
+      })
+    }
 
-    return NextResponse.json({ success: true })
+    const successPayload: MutationSuccessResponse = {
+      success: true,
+      version: materialized.version,
+      serverTime: materialized.serverTime,
+      lastMutationId: materialized.lastMutationId,
+      alreadyApplied: result.alreadyApplied,
+      pickedMemberId: result.pickedMemberId,
+      delta: result.delta,
+      gameState: materialized.gameState,
+      teams: materialized.teams,
+      members: materialized.members,
+    }
+
+    return NextResponse.json(successPayload, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json({ error: 'Failed to pick member' }, { status: 500 })
+    console.error('POST /api/pick error:', error)
+    return NextResponse.json<MutationErrorResponse>(
+      { success: false, error: 'Failed to pick member' },
+      { status: 500, headers: NO_STORE_HEADERS }
+    )
   }
 }

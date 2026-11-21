@@ -1,32 +1,50 @@
 import { NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
+import { materializeState } from '@/lib/gameEngine'
+import { getStateStore } from '@/lib/stateStore'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  try {
-    const [gameState, teams, members] = await Promise.all([
-      prisma.gameState.findUnique({ where: { id: 'singleton' } }),
-      prisma.team.findMany({ include: { members: true }, orderBy: { order: 'asc' } }),
-      prisma.member.findMany({ orderBy: { name: 'asc' } }),
-    ])
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store',
+} as const
 
-    if (!gameState) {
-      // Initialize state if not exists
-      const newState = await prisma.gameState.create({
-        data: { id: 'singleton' },
-      })
-      return NextResponse.json({ gameState: newState, teams: [], members: [] })
+function parseSinceVersion(req?: Request): number | null {
+  if (!req?.url) return null
+  try {
+    const url = new URL(req.url)
+    const raw = url.searchParams.get('sinceVersion')
+    if (raw === null || raw.trim() === '') return null
+    const parsed = Number.parseInt(raw, 10)
+    if (!Number.isFinite(parsed) || parsed < 0) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export async function GET(req?: Request) {
+  try {
+    const sinceVersion = parseSinceVersion(req)
+    const snapshot = await getStateStore().getSnapshot()
+
+    if (sinceVersion !== null && snapshot.version <= sinceVersion) {
+      return NextResponse.json(
+        {
+          unchanged: true,
+          version: snapshot.version,
+          serverTime: snapshot.serverTime,
+        },
+        { headers: NO_STORE_HEADERS }
+      )
     }
 
-    return NextResponse.json({ 
-      gameState, 
-      teams, 
-      members, 
-      serverTime: new Date().toISOString() 
-    })
+    const fullState = materializeState(snapshot)
+    return NextResponse.json(fullState, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json({ error: 'Failed to fetch state' }, { status: 500 })
+    console.error('GET /api/state error:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch state' },
+      { status: 500, headers: NO_STORE_HEADERS }
+    )
   }
 }

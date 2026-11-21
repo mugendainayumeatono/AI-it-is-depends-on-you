@@ -1,178 +1,210 @@
 'use client'
 
-import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from '@dnd-kit/core'
-import { GameState, Member, Team } from '@/types'
+import { useCallback, useMemo, useState } from 'react'
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  closestCenter,
+} from '@dnd-kit/core'
+import { Shuffle, Settings } from 'lucide-react'
+import { applyMutation, materializeState, normalizeState } from '@/lib/gameEngine'
+import type { DispatchMutationInput, DispatchMutationResult } from '@/hooks/useGameState'
+import type { GameData, GameMutation, GameState, Member, Team } from '@/types'
 import DroppableTeam from './DroppableTeam'
 import DraggableMember from './DraggableMember'
 import Timer from './Timer'
-import { useState } from 'react'
-import { Shuffle, Settings } from 'lucide-react'
 
 interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
   serverOffset: number
-  mutate: (data?: Record<string, unknown>, opts?: { revalidate?: boolean }) => void
+  mutate?: (data?: GameData | Record<string, unknown>, opts?: { revalidate?: boolean }) => void
+  dispatchMutation?: (mutation: DispatchMutationInput) => Promise<DispatchMutationResult>
   setShowConfig: (show: boolean) => void
 }
 
-export default function Board({ gameState, teams, members, serverOffset, mutate, setShowConfig }: Props) {
+function generateFallbackMutationId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  return `mut_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+export default function Board({
+  gameState,
+  teams,
+  members,
+  serverOffset,
+  mutate,
+  dispatchMutation,
+  setShowConfig,
+}: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const currentTeam = teams[gameState.currentTeamIndex]
-  const unpickedMembers = members.filter(m => !m.teamId && !m.isBanned)
+  const currentTeamId = currentTeam?.id
 
-  const [isRandomizing, setIsRandomizing] = useState(false)
-  const [isResetting, setIsResetting] = useState(false)
-  const [isStarting, setIsStarting] = useState(false)
+  const unpickedMembers = useMemo(
+    () => members.filter((m) => !m.teamId && !m.isBanned),
+    [members]
+  )
+  const hasUnpicked = unpickedMembers.length > 0
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(event.active.id))
-  }
-
-  const handlePick = (memberId: string | null, teamId: string, action?: string) => {
-    const pickedMember = action === 'AUTO_PICK' ? null : members.find(m => m.id === memberId)
-    if (action !== 'AUTO_PICK' && !pickedMember) return
-
-    const syncedNow = new Date(Date.now() + serverOffset)
-    const startTime = new Date(gameState.turnStartTime).getTime()
-    const elapsedSeconds = Math.floor(Math.max(0, syncedNow.getTime() - startTime) / 1000)
-    const extraTime = Math.max(0, elapsedSeconds - gameState.turnDuration)
-    const newReserveTime = action === 'AUTO_PICK' ? 0 : Math.max(0, currentTeam.reserveTime - extraTime)
-
-    // Optimistic update payload
-    const optimisticData = {
-      gameState: {
-        ...gameState,
-        currentTeamIndex: (gameState.currentTeamIndex + 1) % gameState.teamCount,
-        turnStartTime: syncedNow.toISOString(),
-      },
-      members: action === 'AUTO_PICK' 
-        ? members // We don't know which member will be picked yet
-        : members.map(m => m.id === memberId ? { ...m, teamId } : m),
-      teams: teams.map(t => t.id === teamId 
-        ? { 
-            ...t, 
-            reserveTime: newReserveTime,
-            members: action === 'AUTO_PICK' ? t.members : [...t.members, pickedMember!] 
-          } 
-        : t)
-    }
-
-    // 1. Instant optimistic update without revalidation
-    mutate(optimisticData, { revalidate: false })
-
-    // 2. Fire-and-forget request to server
-    fetch('/api/pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId, teamId, action }),
-    }).then(async (res) => {
-      // 3. Rollback if the server rejected the pick (e.g., concurrency conflict P2025)
-      if (!res.ok) {
-        console.warn("Pick rejected by server (likely a concurrency conflict). Rolling back...")
-        await mutate() 
+  const dispatch = useCallback(
+    async (input: DispatchMutationInput): Promise<DispatchMutationResult> => {
+      if (dispatchMutation) {
+        return dispatchMutation(input)
       }
-    }).catch(err => {
-      console.error("Network error during pick. Rolling back...", err)
-      mutate() 
-    })
-  }
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    setActiveId(null)
-
-    if (over && currentTeam && over.id === currentTeam.id) {
-      handlePick(active.id as string, over.id as string)
-    }
-  }
-
-  const handleAutoPick = () => {
-    if (unpickedMembers.length === 0 || !currentTeam) return
-    handlePick(null, currentTeam.id, 'AUTO_PICK')
-  }
-
-  const handleRandomize = async () => {
-    if (!confirm('Randomly assign all remaining members?')) return
-    setIsRandomizing(true)
-    try {
-      await fetch('/api/randomize', { method: 'POST' })
-      mutate()
-    } finally {
-      setIsRandomizing(false)
-    }
-  }
-
-  const handleStart = async () => {
-    const nowSynced = new Date(Date.now() + serverOffset).toISOString()
-    
-    // Optimistic update
-    const optimisticData = {
-      gameState: {
-        ...gameState,
-        status: 'PICKING',
-        turnStartTime: nowSynced,
-        currentTeamIndex: 0,
-      },
-      teams,
-      members
-    }
-    
-    setIsStarting(true)
-    mutate(optimisticData, { revalidate: false })
-    
-    try {
-      const res = await fetch('/api/pick', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'START' }),
+      // Standalone fallback when mounted without useGameState.dispatchMutation
+      const mutationId = input.mutationId || generateFallbackMutationId()
+      const fullMutation = { ...input, mutationId } as GameMutation
+      const nowMs = Date.now() + serverOffset
+      const snapshot = normalizeState({
+        version: gameState.version ?? 1,
+        serverTime: nowMs,
+        gameState: { ...gameState, version: gameState.version ?? 1 },
+        teams,
+        members,
       })
-      
-      if (res.ok) {
-        const data = await res.json()
-        if (data.gameState) {
-          mutate(data, { revalidate: false })
-        } else {
-          await mutate()
+
+      const optimistic = applyMutation(snapshot, fullMutation, {
+        nowMs,
+        isOptimistic: true,
+      })
+      if (optimistic.ok && mutate) {
+        mutate(materializeState(optimistic.next), { revalidate: false })
+      }
+
+      let url = '/api/pick'
+      let body: Record<string, unknown> = {}
+      switch (fullMutation.type) {
+        case 'START':
+          url = '/api/pick'
+          body = { status: 'START', mutationId }
+          break
+        case 'PICK':
+          url = '/api/pick'
+          body = {
+            memberId: fullMutation.memberId,
+            teamId: fullMutation.teamId,
+            mutationId,
+            expectedVersion: fullMutation.expectedVersion,
+          }
+          break
+        case 'AUTO_PICK':
+          url = '/api/pick'
+          body = {
+            memberId: null,
+            teamId: fullMutation.teamId,
+            action: 'AUTO_PICK',
+            mutationId,
+            expectedVersion: fullMutation.expectedVersion,
+          }
+          break
+        case 'RANDOMIZE':
+          url = '/api/randomize'
+          body = { mutationId }
+          break
+        case 'CONFIG':
+          url = '/api/config'
+          body = {
+            teamCount: fullMutation.teamCount,
+            turnDuration: fullMutation.turnDuration,
+            totalReserveTime: fullMutation.totalReserveTime,
+            teamNames: fullMutation.teamNames,
+            mutationId,
+          }
+          break
+        default:
+          return { ok: false, error: 'Unsupported board mutation' }
+      }
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) {
+          mutate?.()
+          return { ok: false, error: `HTTP ${res.status}` }
         }
-      } else {
-        console.warn("Failed to start draft. Rolling back...")
-        await mutate()
+        const data = (await res.json()) as Record<string, unknown>
+        if (data && data.gameState && mutate) {
+          mutate(data, { revalidate: false })
+        }
+        return { ok: true }
+      } catch (err) {
+        mutate?.()
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : 'Network error',
+        }
       }
-    } catch (err) {
-      console.error("Network error during start. Rolling back...", err)
-      mutate()
-    } finally {
-      setIsStarting(false)
-    }
-  }
+    },
+    [dispatchMutation, gameState, members, mutate, serverOffset, teams]
+  )
 
-  const handleReset = async () => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(String(event.active.id))
+  }, [])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      setActiveId(null)
+
+      if (over && currentTeamId && over.id === currentTeamId) {
+        void dispatch({
+          type: 'PICK',
+          memberId: String(active.id),
+          teamId: String(over.id),
+        })
+      }
+    },
+    [currentTeamId, dispatch]
+  )
+
+  const handleAutoPick = useCallback(() => {
+    if (!hasUnpicked || !currentTeamId) return
+    void dispatch({
+      type: 'AUTO_PICK',
+      teamId: currentTeamId,
+      expectedVersion: gameState.version,
+    })
+  }, [currentTeamId, dispatch, gameState.version, hasUnpicked])
+
+  const handleRandomize = useCallback(() => {
+    if (!confirm('Randomly assign all remaining members?')) return
+    void dispatch({ type: 'RANDOMIZE' })
+  }, [dispatch])
+
+  const handleStart = useCallback(() => {
+    void dispatch({ type: 'START' })
+  }, [dispatch])
+
+  const handleReset = useCallback(() => {
     if (!confirm('Reset game to configuration phase and unpick all members?')) return
-    setIsResetting(true)
-    try {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          teamCount: gameState.teamCount, 
-          turnDuration: gameState.turnDuration, 
-          totalReserveTime: gameState.totalReserveTime,
-          teamNames: teams.map(t => t.name)
-        }),
-      })
-      mutate()
-    } finally {
-      setIsResetting(false)
-    }
-  }
+    void dispatch({
+      type: 'CONFIG',
+      teamCount: gameState.teamCount,
+      turnDuration: gameState.turnDuration,
+      totalReserveTime: gameState.totalReserveTime,
+      teamNames: teams.map((t) => t.name),
+    })
+  }, [dispatch, gameState.teamCount, gameState.totalReserveTime, gameState.turnDuration, teams])
 
-  const activeMember = members.find(m => m.id === activeId)
+  const activeMember = useMemo(
+    () => (activeId ? members.find((m) => m.id === activeId) : undefined),
+    [activeId, members]
+  )
 
   return (
-    <DndContext 
-      collisionDetection={closestCenter} 
+    <DndContext
+      collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -180,47 +212,44 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
         <header className="flex justify-between items-center bg-gray-800/80 p-4 rounded-2xl backdrop-blur-md border border-gray-700 shadow-lg">
           <div className="flex flex-col gap-2">
             <div className="flex gap-4">
-              <button 
+              <button
                 onClick={() => setShowConfig(true)}
-                disabled={isRandomizing || isResetting || isStarting}
-                className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition font-medium border border-gray-600"
               >
                 <Settings size={18} /> Configuration
               </button>
-              <button 
+              <button
                 onClick={handleRandomize}
-                disabled={isRandomizing || isResetting || isStarting}
-                className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 bg-yellow-600/90 text-white px-4 py-2 rounded hover:bg-yellow-500 transition font-medium shadow"
               >
                 <Shuffle size={18} /> Random Teams
               </button>
               {gameState.status === 'CONFIGURING' && (
-                <button 
+                <button
                   onClick={handleStart}
-                  disabled={members.length === 0 || teams.length === 0 || isRandomizing || isResetting || isStarting}
+                  disabled={members.length === 0 || teams.length === 0}
                   className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-500 transition font-medium shadow disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
                   Start Picking
                 </button>
               )}
               {(gameState.status === 'PICKING' || gameState.status === 'COMPLETED') && (
-                <button 
+                <button
                   onClick={handleReset}
-                  disabled={isRandomizing || isResetting || isStarting}
-                  className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 bg-red-900/50 text-red-400 border border-red-800 px-4 py-2 rounded hover:bg-red-900/80 transition font-medium shadow"
                 >
                   Reset Draft
                 </button>
               )}
             </div>
-            {(isRandomizing || isResetting || isStarting) && (
-              <p className="text-sm text-yellow-400 animate-pulse font-medium">
-                {isRandomizing ? 'Randomizing teams, please wait...' : isResetting ? 'Resetting draft, please wait...' : 'Starting draft, please wait...'}
-              </p>
-            )}
           </div>
           {gameState.status === 'PICKING' && currentTeam && (
-            <Timer gameState={gameState} currentTeam={currentTeam} serverOffset={serverOffset} onAutoPick={handleAutoPick} />
+            <Timer
+              gameState={gameState}
+              currentTeam={currentTeam}
+              serverOffset={serverOffset}
+              onAutoPick={handleAutoPick}
+            />
           )}
           {gameState.status === 'COMPLETED' && (
             <div className="text-gray-300 px-8 py-4 border-2 border-gray-600 rounded-xl shadow-lg">
@@ -233,13 +262,15 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
         <div className="flex flex-col lg:flex-row gap-8 flex-1">
           {/* Unpicked Members Pool */}
           <div className="w-full lg:w-1/3 bg-gray-800/80 p-6 rounded-2xl shadow-xl border border-gray-700 space-y-4 backdrop-blur-sm">
-            <h3 className="text-xl font-bold text-gray-200 border-b border-gray-700 pb-2">Available Members ({unpickedMembers.length})</h3>
+            <h3 className="text-xl font-bold text-gray-200 border-b border-gray-700 pb-2">
+              Available Members ({unpickedMembers.length})
+            </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar">
-              {unpickedMembers.map(member => (
-                <DraggableMember 
-                  key={member.id} 
-                  member={member} 
-                  disabled={gameState.status !== 'PICKING'} 
+              {unpickedMembers.map((member) => (
+                <DraggableMember
+                  key={member.id}
+                  member={member}
+                  disabled={gameState.status !== 'PICKING'}
                 />
               ))}
             </div>
@@ -257,11 +288,10 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
           {/* Teams Grid */}
           <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {teams.map((team, idx) => (
-              <DroppableTeam 
-                key={team.id} 
-                team={team} 
+              <DroppableTeam
+                key={team.id}
+                team={team}
                 isCurrentTurn={gameState.status === 'PICKING' && gameState.currentTeamIndex === idx}
-                isOverAnywhere={!!activeId}
               />
             ))}
           </div>
@@ -271,7 +301,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
       <DragOverlay>
         {activeMember ? (
           <div className="rounded-lg shadow-2xl scale-110 opacity-90 cursor-grabbing relative overflow-hidden">
-             <DraggableMember member={activeMember} disabled={true} isOverlay={true} />
+            <DraggableMember member={activeMember} disabled={true} isOverlay={true} />
           </div>
         ) : null}
       </DragOverlay>

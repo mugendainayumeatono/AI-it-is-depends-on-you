@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { GameState, Team } from '@/types'
+import { useEffect, useRef, useState } from 'react'
+import type { GameState, Team } from '@/types'
 
 interface Props {
   gameState: GameState
@@ -10,66 +10,141 @@ interface Props {
   onAutoPick: () => void
 }
 
-export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick }: Props) {
-  // Use a ref to track if an auto-pick is already in progress to avoid multiple calls
-  const isAutoPicking = useRef(false)
+interface TimerDisplay {
+  timeLeft: number
+  isReserve: boolean
+  expired: boolean
+}
 
-  const [timeLeft, setTimeLeft] = useState(0)
-  const [isReserve, setIsReserve] = useState(false)
+function computeTimerDisplay(
+  turnStartTime: string | null,
+  turnDuration: number,
+  reserveTime: number,
+  serverOffset: number,
+  status: GameState['status']
+): TimerDisplay {
+  if (status !== 'PICKING' || !turnStartTime) {
+    return {
+      timeLeft: Math.max(0, turnDuration),
+      isReserve: false,
+      expired: false,
+    }
+  }
+
+  const startTime = Date.parse(turnStartTime)
+  if (!Number.isFinite(startTime)) {
+    return {
+      timeLeft: Math.max(0, turnDuration),
+      isReserve: false,
+      expired: false,
+    }
+  }
+
+  const now = Date.now() + serverOffset
+  const elapsedTotalMs = now - startTime
+
+  if (elapsedTotalMs < turnDuration * 1000) {
+    return {
+      timeLeft: Math.max(0, turnDuration - Math.floor(Math.max(0, elapsedTotalMs) / 1000)),
+      isReserve: false,
+      expired: false,
+    }
+  }
+
+  const reserveElapsed = Math.floor((elapsedTotalMs - turnDuration * 1000) / 1000)
+  const remainingReserve = reserveTime - reserveElapsed
+  if (remainingReserve <= 0) {
+    return {
+      timeLeft: 0,
+      isReserve: true,
+      expired: true,
+    }
+  }
+
+  return {
+    timeLeft: remainingReserve,
+    isReserve: true,
+    expired: false,
+  }
+}
+
+export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick }: Props) {
+  const onAutoPickRef = useRef(onAutoPick)
+  const autoPickedTurnKeyRef = useRef<string | null>(null)
+
+  const { status, turnStartTime, currentTeamIndex, turnDuration, version } = gameState
+  const currentTeamId = currentTeam?.id
+  const currentTeamReserve = currentTeam?.reserveTime ?? 0
+
+  const [display, setDisplay] = useState<{ timeLeft: number; isReserve: boolean }>(() => {
+    const initial = computeTimerDisplay(
+      turnStartTime,
+      turnDuration,
+      currentTeamReserve,
+      serverOffset,
+      status
+    )
+    return { timeLeft: initial.timeLeft, isReserve: initial.isReserve }
+  })
 
   useEffect(() => {
-    // Reset auto-picking flag whenever turn changes
-    isAutoPicking.current = false
+    onAutoPickRef.current = onAutoPick
+  }, [onAutoPick])
+
+  useEffect(() => {
+    const turnKey = `${version ?? 0}:${turnStartTime ?? 'none'}`
 
     const updateTimer = () => {
-      const now = Date.now() + serverOffset
-      const startTime = new Date(gameState.turnStartTime).getTime()
-      const elapsedTotalMs = now - startTime
-      
-      const turnDuration = gameState.turnDuration
-      const reserveTime = currentTeam.reserveTime
+      const next = computeTimerDisplay(
+        turnStartTime,
+        turnDuration,
+        currentTeamReserve,
+        serverOffset,
+        status
+      )
 
-      if (elapsedTotalMs < turnDuration * 1000) {
-        setTimeLeft(Math.max(0, turnDuration - Math.floor(Math.max(0, elapsedTotalMs) / 1000)))
-        setIsReserve(false)
-      } else {
-        const reserveElapsed = Math.floor((elapsedTotalMs - (turnDuration * 1000)) / 1000)
-        const remainingReserve = reserveTime - reserveElapsed
-        if (remainingReserve <= 0) {
-          setTimeLeft(0)
-          setIsReserve(true)
-          
-          // Trigger auto pick if we haven't already
-          if (!isAutoPicking.current && gameState.status === 'PICKING') {
-            isAutoPicking.current = true
-            onAutoPick()
-          }
-        } else {
-          setTimeLeft(remainingReserve)
-          setIsReserve(true)
-        }
+      setDisplay((prev) =>
+        prev.timeLeft === next.timeLeft && prev.isReserve === next.isReserve
+          ? prev
+          : { timeLeft: next.timeLeft, isReserve: next.isReserve }
+      )
+
+      if (next.expired && status === 'PICKING' && autoPickedTurnKeyRef.current !== turnKey) {
+        autoPickedTurnKeyRef.current = turnKey
+        onAutoPickRef.current()
       }
     }
 
-    // Update immediately on mount or when props change
     updateTimer()
 
     const interval = setInterval(updateTimer, 100)
-
     return () => clearInterval(interval)
-  }, [gameState, currentTeam, serverOffset, onAutoPick])
+  }, [
+    status,
+    turnStartTime,
+    currentTeamIndex,
+    turnDuration,
+    version,
+    currentTeamId,
+    currentTeamReserve,
+    serverOffset,
+  ])
 
   return (
-    <div className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors shadow-lg
-      ${!isReserve 
-        ? 'border-green-500 bg-green-900/30 text-green-400' 
-        : timeLeft < 30 
-          ? 'border-red-500 bg-red-900/30 text-red-400 animate-pulse' 
-          : 'border-blue-500 bg-blue-900/30 text-blue-400'
+    <div
+      className={`text-center p-8 rounded-full border-8 w-48 h-48 flex flex-col items-center justify-center transition-colors shadow-lg
+      ${
+        !display.isReserve
+          ? 'border-green-500 bg-green-900/30 text-green-400'
+          : display.timeLeft < 30
+            ? 'border-red-500 bg-red-900/30 text-red-400 animate-pulse'
+            : 'border-blue-500 bg-blue-900/30 text-blue-400'
       }`}
     >
-      <p className="text-xs font-bold uppercase mb-1 tracking-wider">{isReserve ? 'Reserve Time' : 'Turn Time'}</p>
-      <p className="text-6xl font-black">{timeLeft}s</p>
+      <p className="text-xs font-bold uppercase mb-1 tracking-wider">
+        {display.isReserve ? 'Reserve Time' : 'Turn Time'}
+      </p>
+      <p className="text-6xl font-black">{display.timeLeft}s</p>
       <p className="text-xs mt-2 font-medium opacity-80">{currentTeam.name}&apos;s Turn</p>
     </div>
   )

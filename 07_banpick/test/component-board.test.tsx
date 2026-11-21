@@ -1,128 +1,302 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Board from '@/components/Board'
+import type { GameState, Member, Team } from '@/types'
 
 describe('Component: Board', () => {
-  const mockState = { status: 'PICKING', currentTeamIndex: 0, teamCount: 2, turnDuration: 30, totalReserveTime: 120, turnStartTime: new Date().toISOString() }
-  const mockTeams = [{ id: 't1', name: 'Team Alpha', reserveTime: 120, members: [] }, { id: 't2', name: 'Team Beta', reserveTime: 120, members: [] }]
-  const mockMembers = [
-    { id: 'm1', name: 'Player 1', teamId: null, info: 'Carry' },
+  const mockState: GameState = {
+    id: 'singleton',
+    version: 3,
+    status: 'PICKING',
+    currentTeamIndex: 0,
+    teamCount: 2,
+    turnDuration: 30,
+    totalReserveTime: 120,
+    turnStartTime: new Date().toISOString(),
+  }
+
+  const mockTeams: Team[] = [
+    { id: 't1', name: 'Team Alpha', order: 0, reserveTime: 120, members: [] },
+    { id: 't2', name: 'Team Beta', order: 1, reserveTime: 120, members: [] },
   ]
-  const mutate = vi.fn()
+
+  const mockMembers: Member[] = [
+    {
+      id: 'm1',
+      name: 'Player 1',
+      info: 'Carry',
+      avatar: null,
+      background: null,
+      teamId: null,
+      isBanned: false,
+      pickedAt: null,
+    },
+  ]
 
   beforeEach(() => {
     vi.clearAllMocks()
-    global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
-      json: () => Promise.resolve({ success: true })
-    }))
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      })
+    )
     global.confirm = vi.fn().mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('should render teams and available members', () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
+    render(
+      <Board
+        gameState={mockState}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={vi.fn().mockResolvedValue({ ok: true })}
+        setShowConfig={vi.fn()}
+      />
+    )
     expect(screen.getByText(/Available Members/i)).toBeDefined()
     expect(screen.getByText(/Player 1/i)).toBeDefined()
+    expect(screen.getByRole('heading', { name: /Team Alpha/i })).toBeDefined()
+    expect(screen.getByRole('heading', { name: /Team Beta/i })).toBeDefined()
   })
 
-  it('should call randomize API', async () => {
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
-    const btn = screen.getByText(/Random Teams/i)
-    fireEvent.click(btn)
-    expect(global.fetch).toHaveBeenCalledWith('/api/randomize', expect.objectContaining({ method: 'POST' }))
+  it('should dispatch START optimistically without blocking action buttons', () => {
+    // Keep dispatchMutation pending to verify buttons remain responsive (no isStarting lock)
+    const dispatchMutation = vi.fn(() => new Promise<{ ok: boolean }>(() => {}))
+    const setShowConfig = vi.fn()
+
+    render(
+      <Board
+        gameState={{ ...mockState, status: 'CONFIGURING', turnStartTime: null }}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={dispatchMutation}
+        setShowConfig={setShowConfig}
+      />
+    )
+
+    const startBtn = screen.getByRole('button', { name: /Start Picking/i })
+    fireEvent.click(startBtn)
+
+    expect(dispatchMutation).toHaveBeenCalledWith({ type: 'START' })
+    // No blocking lock: Configuration & Random Teams remain enabled immediately
+    const configBtn = screen.getByRole('button', { name: /Configuration/i })
+    const randomBtn = screen.getByRole('button', { name: /Random Teams/i })
+    expect(configBtn).not.toBeDisabled()
+    expect(randomBtn).not.toBeDisabled()
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should call start game API', async () => {
-    render(<Board gameState={{...mockState, status: 'CONFIGURING'} as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
-    const btn = screen.getByRole('button', { name: /Start Picking/i })
-    fireEvent.click(btn)
-    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({ method: 'POST', body: JSON.stringify({ status: 'START' }) }))
+  it('should dispatch RANDOMIZE via dispatchMutation when confirmed', () => {
+    const dispatchMutation = vi.fn().mockResolvedValue({ ok: true })
+    render(
+      <Board
+        gameState={mockState}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={dispatchMutation}
+        setShowConfig={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByText(/Random Teams/i))
+    expect(dispatchMutation).toHaveBeenCalledWith({ type: 'RANDOMIZE' })
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should call reset draft API', async () => {
-    global.confirm = vi.fn().mockReturnValue(true)
-    render(<Board gameState={mockState as any} teams={mockTeams as any} members={mockMembers as any} serverOffset={0} mutate={vi.fn()} setShowConfig={vi.fn()} />)
-    const btn = screen.getByText(/Reset Draft/i)
-    fireEvent.click(btn)
-    expect(global.fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ method: 'POST' }))
+  it('should NOT dispatch RANDOMIZE when user cancels confirm dialog', () => {
+    global.confirm = vi.fn().mockReturnValue(false)
+    const dispatchMutation = vi.fn().mockResolvedValue({ ok: true })
+
+    render(
+      <Board
+        gameState={mockState}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={dispatchMutation}
+        setShowConfig={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByText(/Random Teams/i))
+    expect(dispatchMutation).not.toHaveBeenCalled()
   })
 
-  it('should handle auto-pick from Timer', async () => {
-    const mutate = vi.fn()
-    // Setup state so Timer triggers onAutoPick immediately
+  it('should dispatch CONFIG reset preserving totalReserveTime = 0', () => {
+    const dispatchMutation = vi.fn().mockResolvedValue({ ok: true })
+    render(
+      <Board
+        gameState={{ ...mockState, totalReserveTime: 0 }}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={dispatchMutation}
+        setShowConfig={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByText(/Reset Draft/i))
+    expect(dispatchMutation).toHaveBeenCalledWith({
+      type: 'CONFIG',
+      teamCount: 2,
+      turnDuration: 30,
+      totalReserveTime: 0,
+      teamNames: ['Team Alpha', 'Team Beta'],
+    })
+  })
+
+  it('should dispatch AUTO_PICK with expectedVersion from Timer expiry', async () => {
+    const dispatchMutation = vi.fn().mockResolvedValue({ ok: true })
     const now = Date.now()
-    const state = { 
-      ...mockState, 
+    const state: GameState = {
+      ...mockState,
+      version: 9,
       status: 'PICKING',
-      turnStartTime: new Date(now - 40000).toISOString() // 40s ago, turn duration is 30s, reserve is 0 (relative to 30s)
+      turnStartTime: new Date(now - 40000).toISOString(),
     }
-    const teams = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
+    const teams: Team[] = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
 
     vi.useFakeTimers()
     vi.setSystemTime(new Date(now))
 
-    render(<Board gameState={state as any} teams={teams as any} members={mockMembers as any} serverOffset={0} mutate={mutate} setShowConfig={vi.fn()} />)
-    
-    // Timer should call onAutoPick
+    render(
+      <Board
+        gameState={state}
+        teams={teams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={dispatchMutation}
+        setShowConfig={vi.fn()}
+      />
+    )
+
     await act(async () => {
       vi.advanceTimersByTime(1000)
     })
 
-    // handlePick should have been called, which calls mutate optimistically
-    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
-      gameState: expect.objectContaining({
-        currentTeamIndex: 1
+    expect(dispatchMutation).toHaveBeenCalledTimes(1)
+    expect(dispatchMutation).toHaveBeenCalledWith({
+      type: 'AUTO_PICK',
+      teamId: 't1',
+      expectedVersion: 9,
+    })
+  })
+
+  it('should render Draft Completed banner when status is COMPLETED', () => {
+    render(
+      <Board
+        gameState={{ ...mockState, status: 'COMPLETED' }}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        dispatchMutation={vi.fn().mockResolvedValue({ ok: true })}
+        setShowConfig={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/Draft Completed/i)).toBeDefined()
+    expect(screen.getByText(/Reset Draft/i)).toBeDefined()
+  })
+
+  it('standalone fallback: calls /api/pick for START and /api/randomize when dispatchMutation is omitted', () => {
+    const mutate = vi.fn()
+    render(
+      <Board
+        gameState={{ ...mockState, status: 'CONFIGURING', turnStartTime: null }}
+        teams={mockTeams}
+        members={mockMembers}
+        serverOffset={0}
+        mutate={mutate}
+        setShowConfig={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Start Picking/i }))
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gameState: expect.objectContaining({ status: 'PICKING' }),
+      }),
+      { revalidate: false }
+    )
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/pick',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"status":"START"'),
       })
-    }), { revalidate: false })
-    
-    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
-      method: 'POST',
-      body: expect.stringContaining('"action":"AUTO_PICK"')
-    }))
-    expect(global.fetch).toHaveBeenCalledWith('/api/pick', expect.objectContaining({
-      method: 'POST',
-      body: expect.stringContaining('"memberId":null')
-    }))
+    )
 
-    vi.useRealTimers()
+    fireEvent.click(screen.getByText(/Random Teams/i))
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/randomize',
+      expect.objectContaining({ method: 'POST' })
+    )
   })
 
-  it('should rollback on pick failure', async () => {
+  it('standalone fallback: handles auto-pick and rolls back on 409 failure', async () => {
     const mutate = vi.fn()
     const now = Date.now()
-    const state = { 
-      ...mockState, 
+    const state: GameState = {
+      ...mockState,
+      version: 4,
       status: 'PICKING',
-      turnStartTime: new Date(now - 40000).toISOString()
+      turnStartTime: new Date(now - 40000).toISOString(),
     }
-    const teams = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
+    const teams: Team[] = [{ ...mockTeams[0], reserveTime: 0 }, mockTeams[1]]
 
-    global.fetch = vi.fn().mockImplementation(() => Promise.resolve({
-      ok: false,
-      status: 409
-    }))
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'Turn has already been taken' }),
+      })
+    )
 
     vi.useFakeTimers()
     vi.setSystemTime(new Date(now))
 
-    render(<Board gameState={state as any} teams={teams as any} members={mockMembers as any} serverOffset={0} mutate={mutate} setShowConfig={vi.fn()} />)
-    
-    // Trigger auto-pick
+    render(
+      <Board
+        gameState={state}
+        teams={teams}
+        members={mockMembers}
+        serverOffset={0}
+        mutate={mutate}
+        setShowConfig={vi.fn()}
+      />
+    )
+
     await act(async () => {
       vi.advanceTimersByTime(1000)
     })
 
-    // 1. Optimistic call
-    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
-      gameState: expect.objectContaining({ currentTeamIndex: 1 })
-    }), { revalidate: false })
+    // 1. Optimistic mutate call
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gameState: expect.objectContaining({ currentTeamIndex: 1 }),
+      }),
+      { revalidate: false }
+    )
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/pick',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"action":"AUTO_PICK"'),
+      })
+    )
 
-    // 2. Wait for fetch promise and rollback call
-    // We need to exit the fake timer loop for the promise to resolve in some environments, 
-    // or just use real timers for a bit.
     vi.useRealTimers()
-    
+
+    // 2. Rollback mutate() call on HTTP 409
     await waitFor(() => {
       expect(mutate).toHaveBeenCalledWith()
-    }, { timeout: 2000 })
+    })
   })
 })

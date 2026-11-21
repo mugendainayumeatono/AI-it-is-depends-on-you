@@ -2,10 +2,14 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import RootLayout from '@/app/layout'
 
-// Mock fonts as they can be tricky in test environments
+// Mock fonts & Vercel SpeedInsights for unit test environment
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: 'geist' }),
   Geist_Mono: () => ({ variable: 'mono' }),
+}))
+
+vi.mock('@vercel/speed-insights/next', () => ({
+  SpeedInsights: () => null,
 }))
 
 describe('Layout: RootLayout', () => {
