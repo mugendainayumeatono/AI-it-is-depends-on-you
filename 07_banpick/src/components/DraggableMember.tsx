@@ -27,10 +27,10 @@ export default function DraggableMember({ member, disabled, isOverlay }: { membe
         ${!isOverlay && isDragging ? 'opacity-0' : ''}
       `}
     >
-      {member.background && <img src={member.background} className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
+      {member.background && <img src={member.background} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
       
       {member.avatar && (
-        <img src={member.avatar} className="w-12 h-12 rounded-full object-cover border-2 border-gray-500 relative z-10 pointer-events-none" />
+        <img src={member.avatar} alt={member.name} className="w-12 h-12 rounded-full object-cover border-2 border-gray-500 relative z-10 pointer-events-none" />
       )}
       
       <div className="relative z-10 pointer-events-none">

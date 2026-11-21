@@ -86,9 +86,9 @@ export async function POST(req: Request) {
           },
         }),
       ])
-    } catch (e: any) {
+    } catch (e: unknown) {
       // P2025 means the record was not found (meaning turnStartTime changed)
-      if (e.code === 'P2025') {
+      if (typeof e === 'object' && e !== null && 'code' in e && (e as { code?: string }).code === 'P2025') {
         return NextResponse.json({ error: 'Turn has already been taken' }, { status: 409 })
       }
       throw e;

@@ -14,8 +14,6 @@ export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick
   // Use a ref to track if an auto-pick is already in progress to avoid multiple calls
   const isAutoPicking = useRef(false)
 
-  const getSyncedNow = () => Date.now() + serverOffset
-
   const [timeLeft, setTimeLeft] = useState(0)
   const [isReserve, setIsReserve] = useState(false)
 
@@ -24,10 +22,9 @@ export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick
     isAutoPicking.current = false
 
     const updateTimer = () => {
-      const now = getSyncedNow()
+      const now = Date.now() + serverOffset
       const startTime = new Date(gameState.turnStartTime).getTime()
       const elapsedTotalMs = now - startTime
-      const elapsed = Math.floor(Math.max(0, elapsedTotalMs) / 1000)
       
       const turnDuration = gameState.turnDuration
       const reserveTime = currentTeam.reserveTime
@@ -73,7 +70,7 @@ export default function Timer({ gameState, currentTeam, serverOffset, onAutoPick
     >
       <p className="text-xs font-bold uppercase mb-1 tracking-wider">{isReserve ? 'Reserve Time' : 'Turn Time'}</p>
       <p className="text-6xl font-black">{timeLeft}s</p>
-      <p className="text-xs mt-2 font-medium opacity-80">{currentTeam.name}'s Turn</p>
+      <p className="text-xs mt-2 font-medium opacity-80">{currentTeam.name}&apos;s Turn</p>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import useSWR from 'swr'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Pusher from 'pusher-js'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
@@ -10,18 +10,14 @@ export function useGameState() {
   
   const { data, error, mutate } = useSWR('/api/state', fetcher, {
     refreshInterval: syncMethod === 'PUSHER' ? 0 : 1000,
+    onSuccess: (fetchedData) => {
+      if (fetchedData?.serverTime) {
+        const serverDate = new Date(fetchedData.serverTime).getTime()
+        const localDate = Date.now()
+        setServerOffset(serverDate - localDate)
+      }
+    },
   })
-
-  // Update serverOffset whenever data with serverTime is received
-  useEffect(() => {
-    if (data?.serverTime) {
-      const serverDate = new Date(data.serverTime).getTime()
-      const localDate = Date.now()
-      // We only update if it's a fresh update to avoid jitter from re-renders
-      // But SWR data is stable if not changed, so this is fine.
-      setServerOffset(serverDate - localDate)
-    }
-  }, [data?.serverTime])
 
   useEffect(() => {
     if (syncMethod !== 'PUSHER') return
@@ -39,7 +35,7 @@ export function useGameState() {
     })
 
     const channel = pusher.subscribe('banpick-channel')
-    channel.bind('state-update', (payload: any) => {
+    channel.bind('state-update', (payload: { state?: Record<string, unknown> } | null | undefined) => {
       if (payload && payload.state) {
         mutate(payload.state, { revalidate: false })
       } else {

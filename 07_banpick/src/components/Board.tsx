@@ -1,6 +1,6 @@
 'use client'
 
-import { DndContext, DragEndEvent, DragOverlay, closestCenter } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from '@dnd-kit/core'
 import { GameState, Member, Team } from '@/types'
 import DroppableTeam from './DroppableTeam'
 import DraggableMember from './DraggableMember'
@@ -13,7 +13,7 @@ interface Props {
   teams: Team[]
   members: Member[]
   serverOffset: number
-  mutate: (data?: any, opts?: any) => void
+  mutate: (data?: Record<string, unknown>, opts?: { revalidate?: boolean }) => void
   setShowConfig: (show: boolean) => void
 }
 
@@ -26,8 +26,8 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
   const [isResetting, setIsResetting] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
 
-  const handleDragStart = (event: any) => {
-    setActiveId(event.active.id)
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id))
   }
 
   const handlePick = (memberId: string | null, teamId: string, action?: string) => {
@@ -249,7 +249,7 @@ export default function Board({ gameState, teams, members, serverOffset, mutate,
             {gameState.status === 'CONFIGURING' && (
               <div className="text-center text-gray-400 py-10 flex flex-col items-center gap-4">
                 <p>Game is in configuration mode.</p>
-                <p className="text-sm">Click "Start Picking" to begin drafting.</p>
+                <p className="text-sm">Click &quot;Start Picking&quot; to begin drafting.</p>
               </div>
             )}
           </div>

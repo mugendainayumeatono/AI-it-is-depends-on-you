@@ -19,8 +19,9 @@ export async function POST(req: Request) {
     await triggerStateUpdate()
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("API Members Error:", error)
-    return NextResponse.json({ error: error.message || 'Failed to manage members' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Failed to manage members'
+    return NextResponse.json({ error: message || 'Failed to manage members' }, { status: 500 })
   }
 }

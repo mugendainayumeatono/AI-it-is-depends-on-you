@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import { Member, Team, GameState } from '@/types'
-import { Plus, Trash2, Save, Play, Upload, Pencil, X } from 'lucide-react'
+import { Plus, Trash2, Save, Upload, Pencil, X } from 'lucide-react'
 
 interface Props {
   gameState: GameState
   teams: Team[]
   members: Member[]
-  mutate: (data?: any, opts?: any) => void
+  mutate: (data?: Record<string, unknown>, opts?: { revalidate?: boolean }) => void
   onClose?: () => void
 }
 
@@ -103,8 +103,9 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
 
       cancelEdit()
       mutate()
-    } catch (e: any) {
-      alert(e.message || "An error occurred while saving the member.")
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "An error occurred while saving the member."
+      alert(message || "An error occurred while saving the member.")
     } finally {
       setIsAdding(false)
     }
@@ -215,11 +216,11 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
           <div className="flex flex-col gap-2 w-full sm:w-auto mt-2 sm:mt-0">
             <div className="flex gap-2">
               <label className="flex flex-col items-center justify-center border border-dashed border-gray-500 rounded p-2 cursor-pointer hover:bg-gray-700 w-24 h-24 relative overflow-hidden">
-                {newMemberAvatar ? <img src={newMemberAvatar} className="absolute inset-0 w-full h-full object-cover" /> : <><Upload size={16} className="text-gray-400"/> <span className="text-xs text-gray-400 mt-1">Avatar</span></>}
+                {newMemberAvatar ? <img src={newMemberAvatar} alt="Avatar preview" className="absolute inset-0 w-full h-full object-cover" /> : <><Upload size={16} className="text-gray-400"/> <span className="text-xs text-gray-400 mt-1">Avatar</span></>}
                 <input type="file" accept="image/*" className="hidden" onChange={e => handleFileChange(e, setNewMemberAvatar)} />
               </label>
               <label className="flex flex-col items-center justify-center border border-dashed border-gray-500 rounded p-2 cursor-pointer hover:bg-gray-700 w-32 h-24 relative overflow-hidden">
-                {newMemberBackground ? <img src={newMemberBackground} className="absolute inset-0 w-full h-full object-cover" /> : <><Upload size={16} className="text-gray-400"/> <span className="text-xs text-gray-400 mt-1">Background</span></>}
+                {newMemberBackground ? <img src={newMemberBackground} alt="Background preview" className="absolute inset-0 w-full h-full object-cover" /> : <><Upload size={16} className="text-gray-400"/> <span className="text-xs text-gray-400 mt-1">Background</span></>}
                 <input type="file" accept="image/*" className="hidden" onChange={e => handleFileChange(e, setNewMemberBackground)} />
               </label>
             </div>
@@ -248,9 +249,9 @@ export default function Configuration({ gameState, teams, members, mutate, onClo
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {members.map(m => (
             <div key={m.id} className="flex justify-between items-center p-3 bg-gray-700 border border-gray-600 rounded hover:border-gray-500 transition relative overflow-hidden group">
-              {m.background && <img src={m.background} className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
+              {m.background && <img src={m.background} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
               <div className="flex items-center gap-3 relative z-10">
-                {m.avatar && <img src={m.avatar} className="w-10 h-10 rounded-full object-cover border border-gray-500" />}
+                {m.avatar && <img src={m.avatar} alt={m.name} className="w-10 h-10 rounded-full object-cover border border-gray-500" />}
                 <div>
                   <p className="font-medium text-white">{m.name}</p>
                   <p className="text-xs text-gray-400 whitespace-pre-wrap">{m.info}</p>

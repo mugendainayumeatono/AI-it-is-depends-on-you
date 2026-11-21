@@ -3,7 +3,7 @@
 import { useGameState } from '@/hooks/useGameState'
 import Configuration from '@/components/Configuration'
 import Board from '@/components/Board'
-import { Loader2, Settings } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
 export default function Home() {

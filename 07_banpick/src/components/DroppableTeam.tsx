@@ -9,7 +9,7 @@ interface Props {
   isOverAnywhere: boolean
 }
 
-export default function DroppableTeam({ team, isCurrentTurn, isOverAnywhere }: Props) {
+export default function DroppableTeam({ team, isCurrentTurn }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: team.id,
     disabled: !isCurrentTurn,
@@ -34,8 +34,8 @@ export default function DroppableTeam({ team, isCurrentTurn, isOverAnywhere }: P
       <div className="space-y-3">
         {team.members.map((member) => (
           <div key={member.id} className="relative overflow-hidden p-3 bg-gray-700/80 rounded shadow-sm border border-gray-600 flex items-center gap-3">
-            {member.background && <img src={member.background} className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
-            {member.avatar && <img src={member.avatar} className="w-10 h-10 rounded-full object-cover border border-gray-500 relative z-10 pointer-events-none" />}
+            {member.background && <img src={member.background} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />}
+            {member.avatar && <img src={member.avatar} alt={member.name} className="w-10 h-10 rounded-full object-cover border border-gray-500 relative z-10 pointer-events-none" />}
             <div className="relative z-10 pointer-events-none">
               <p className="font-bold text-gray-100">{member.name}</p>
               {member.info && <p className="text-xs text-gray-400 whitespace-pre-wrap">{member.info}</p>}
