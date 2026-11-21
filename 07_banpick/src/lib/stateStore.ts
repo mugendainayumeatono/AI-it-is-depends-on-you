@@ -911,32 +911,28 @@ export class PrismaStateStore implements StateStore {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const txResult = await prisma.$transaction(async (tx) => {
-          let prepared: GameMutation = mutation
-          if (mutation.type === 'MEMBER_ADD' && !mutation.id) {
-            prepared = { ...mutation, id: generateId() }
-          }
+        let prepared: GameMutation = mutation
+        if (mutation.type === 'MEMBER_ADD' && !mutation.id) {
+          prepared = { ...mutation, id: generateId() }
+        }
 
-          // Fast warm-cache path: if we already have an in-process snapshot on attempt 0,
-          // try applying & locking against its version without 3-table SELECT queries first.
-          let current: NormalizedGameSnapshot | null = null
-          let applied: ReturnType<typeof applyMutation> | null = null
-          let locked = { count: 0 }
+        // 1-RTT Single-Statement Fast Path when warmBase is cached on attempt 0
+        // (avoids multi-round-trip interactive BEGIN -> UPDATEs -> COMMIT transaction!)
+        const warmBase = attempt === 0 ? globalThis.__banpickPrismaCachedSnapshot : undefined
+        if (warmBase) {
+          const candidate = applyMutation(warmBase, prepared, {
+            nowMs,
+            generateId,
+            isOptimistic: false,
+          })
+          if (candidate.ok && !candidate.alreadyApplied) {
+            const next = candidate.next
+            const turnStartDate = next.gameState.turnStartTime
+              ? new Date(next.gameState.turnStartTime)
+              : new Date(nowMs)
 
-          const warmBase = attempt === 0 ? globalThis.__banpickPrismaCachedSnapshot : undefined
-          if (warmBase) {
-            const candidate = applyMutation(warmBase, prepared, {
-              nowMs,
-              generateId,
-              isOptimistic: false,
-            })
-            if (candidate.ok && !candidate.alreadyApplied) {
-              const next = candidate.next
-              const turnStartDate = next.gameState.turnStartTime
-                ? new Date(next.gameState.turnStartTime)
-                : new Date(nowMs)
-
-              locked = await tx.gameState.updateMany({
+            if (prepared.type === 'START') {
+              const locked = await prisma.gameState.updateMany({
                 where: { id: 'singleton', version: warmBase.version },
                 data: {
                   version: next.version,
@@ -949,8 +945,191 @@ export class PrismaStateStore implements StateStore {
                 },
               })
 
+              if (locked && locked.count === 1) {
+                const fastResult: StoreMutationResult = {
+                  ok: true,
+                  snapshot: next,
+                  event: candidate.event,
+                  delta: candidate.delta,
+                  pickedMemberId: candidate.pickedMemberId,
+                }
+                globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(next)
+                pushRingEvent(cache.events, candidate.event)
+                setCachedIdempotency(cache.idempotency, mutation.mutationId, fastResult, nowMs)
+                return fastResult
+              }
+              globalThis.__banpickPrismaCachedSnapshot = undefined
+            } else if (
+              (prepared.type === 'PICK' || prepared.type === 'AUTO_PICK') &&
+              typeof prisma.$queryRaw === 'function'
+            ) {
+              const memberPatch = candidate.delta?.memberPatch
+              const teamPatch = candidate.delta?.teamPatch
+              if (memberPatch && teamPatch) {
+                const pickedAtDate = memberPatch.pickedAt
+                  ? new Date(memberPatch.pickedAt)
+                  : new Date(nowMs)
+                const rows = await prisma.$queryRaw<
+                  Array<{
+                    stateLocked: number | bigint
+                    memberClaimed: number | bigint
+                    stateUpdated: number | bigint
+                  }>
+                >`
+                  WITH locked_state AS (
+                    SELECT "id" FROM "GameState"
+                    WHERE "id" = 'singleton' AND "version" = ${warmBase.version}
+                    FOR UPDATE
+                  ),
+                  claimed_member AS (
+                    UPDATE "Member"
+                    SET "teamId" = ${memberPatch.teamId},
+                        "pickedAt" = ${pickedAtDate}
+                    WHERE "id" = ${memberPatch.id}
+                      AND "teamId" IS NULL
+                      AND "isBanned" = false
+                      AND EXISTS (SELECT 1 FROM locked_state)
+                    RETURNING "id"
+                  ),
+                  updated_team AS (
+                    UPDATE "Team"
+                    SET "reserveTime" = ${teamPatch.reserveTime}
+                    WHERE "id" = ${teamPatch.id}
+                      AND EXISTS (SELECT 1 FROM claimed_member)
+                    RETURNING "id"
+                  ),
+                  updated_state AS (
+                    UPDATE "GameState"
+                    SET "version" = ${next.version},
+                        "currentTeamIndex" = ${next.gameState.currentTeamIndex},
+                        "turnStartTime" = ${turnStartDate},
+                        "status" = ${next.gameState.status},
+                        "turnDuration" = ${next.gameState.turnDuration},
+                        "totalReserveTime" = ${next.gameState.totalReserveTime},
+                        "teamCount" = ${next.gameState.teamCount}
+                    WHERE "id" = 'singleton'
+                      AND "version" = ${warmBase.version}
+                      AND EXISTS (SELECT 1 FROM claimed_member)
+                    RETURNING "version"
+                  )
+                  SELECT
+                    (SELECT COUNT(*)::int FROM locked_state) AS "stateLocked",
+                    (SELECT COUNT(*)::int FROM claimed_member) AS "memberClaimed",
+                    (SELECT COUNT(*)::int FROM updated_state) AS "stateUpdated"
+                `
+
+                if (Array.isArray(rows) && rows.length > 0) {
+                  const row = rows[0]
+                  if (
+                    Number(row.stateLocked) === 1 &&
+                    Number(row.memberClaimed) === 1 &&
+                    Number(row.stateUpdated) === 1
+                  ) {
+                    const fastResult: StoreMutationResult = {
+                      ok: true,
+                      snapshot: next,
+                      event: candidate.event,
+                      delta: candidate.delta,
+                      pickedMemberId: candidate.pickedMemberId,
+                    }
+                    globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(next)
+                    pushRingEvent(cache.events, candidate.event)
+                    setCachedIdempotency(cache.idempotency, mutation.mutationId, fastResult, nowMs)
+                    return fastResult
+                  }
+                  if (Number(row.stateLocked) === 1 && Number(row.memberClaimed) === 0) {
+                    throw new PrismaVersionConflictError(
+                      409,
+                      'MEMBER_UNAVAILABLE',
+                      'Member is no longer available'
+                    )
+                  }
+                  globalThis.__banpickPrismaCachedSnapshot = undefined
+                }
+              }
+            } else if (
+              prepared.type === 'MEMBER_DELETE' &&
+              typeof prisma.$queryRaw === 'function'
+            ) {
+              const rows = await prisma.$queryRaw<
+                Array<{ stateUpdated: number | bigint }>
+              >`
+                WITH updated_state AS (
+                  UPDATE "GameState"
+                  SET "version" = ${next.version},
+                      "currentTeamIndex" = ${next.gameState.currentTeamIndex},
+                      "turnStartTime" = ${turnStartDate},
+                      "status" = ${next.gameState.status},
+                      "turnDuration" = ${next.gameState.turnDuration},
+                      "totalReserveTime" = ${next.gameState.totalReserveTime},
+                      "teamCount" = ${next.gameState.teamCount}
+                  WHERE "id" = 'singleton' AND "version" = ${warmBase.version}
+                  RETURNING "version"
+                ),
+                deleted_member AS (
+                  DELETE FROM "Member"
+                  WHERE "id" = ${prepared.id}
+                    AND EXISTS (SELECT 1 FROM updated_state)
+                  RETURNING "id"
+                )
+                SELECT (SELECT COUNT(*)::int FROM updated_state) AS "stateUpdated"
+              `
+
+              if (Array.isArray(rows) && rows.length > 0) {
+                if (Number(rows[0].stateUpdated) === 1) {
+                  const fastResult: StoreMutationResult = {
+                    ok: true,
+                    snapshot: next,
+                    event: candidate.event,
+                    delta: candidate.delta,
+                    pickedMemberId: candidate.pickedMemberId,
+                  }
+                  globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(next)
+                  pushRingEvent(cache.events, candidate.event)
+                  setCachedIdempotency(cache.idempotency, mutation.mutationId, fastResult, nowMs)
+                  return fastResult
+                }
+                globalThis.__banpickPrismaCachedSnapshot = undefined
+              }
+            }
+          }
+        }
+
+        const txResult = await prisma.$transaction(async (tx) => {
+          // Fast warm-cache path inside transaction for multi-write mutations (or when $queryRaw is unmocked):
+          // if we already have an in-process snapshot on attempt 0, try locking against its version without SELECTs.
+          let current: NormalizedGameSnapshot | null = null
+          let applied: ReturnType<typeof applyMutation> | null = null
+          let locked = { count: 0 }
+
+          const txWarmBase = attempt === 0 ? globalThis.__banpickPrismaCachedSnapshot : undefined
+          if (txWarmBase) {
+            const candidate = applyMutation(txWarmBase, prepared, {
+              nowMs,
+              generateId,
+              isOptimistic: false,
+            })
+            if (candidate.ok && !candidate.alreadyApplied) {
+              const next = candidate.next
+              const turnStartDate = next.gameState.turnStartTime
+                ? new Date(next.gameState.turnStartTime)
+                : new Date(nowMs)
+
+              locked = await tx.gameState.updateMany({
+                where: { id: 'singleton', version: txWarmBase.version },
+                data: {
+                  version: next.version,
+                  currentTeamIndex: next.gameState.currentTeamIndex,
+                  turnStartTime: turnStartDate,
+                  status: next.gameState.status,
+                  turnDuration: next.gameState.turnDuration,
+                  totalReserveTime: next.gameState.totalReserveTime,
+                  teamCount: next.gameState.teamCount,
+                },
+              })
+
               if (locked.count > 0) {
-                current = warmBase
+                current = txWarmBase
                 applied = candidate
               } else {
                 // Warm cache was superseded by another instance; clear and reload below

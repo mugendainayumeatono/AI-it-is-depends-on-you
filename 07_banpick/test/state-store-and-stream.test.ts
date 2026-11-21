@@ -10,6 +10,7 @@ import { applyMutation, buildMediaUrl } from '@/lib/gameEngine'
 import { emitLocalEvent } from '@/lib/realtime'
 import {
   LUA_MUTATION_SCRIPT,
+  PrismaStateStore,
   REDIS_EVENTS_KEY,
   REDIS_IDEMP_PREFIX,
   REDIS_MEDIA_PREFIX,
@@ -464,6 +465,169 @@ describe('UpstashRedisStateStore, SSE /api/stream, Pusher Auth & Rapid-Fire Stre
           data: expect.objectContaining({ version: 4, status: 'PICKING' }),
         })
       )
+    })
+  })
+
+  describe('PrismaStateStore 1-RTT CTE Fast Path', () => {
+    afterEach(() => {
+      delete (prisma as unknown as { $queryRaw?: unknown }).$queryRaw
+    })
+
+    it('commits warm-cache START and PICK in 1 DB RTT with ZERO interactive $transaction calls, and falls back cleanly on cache miss or unmocked $queryRaw', async () => {
+      const store = new PrismaStateStore()
+
+      // 1. Seed warm cache via getSnapshot() at v2 (CONFIGURING)
+      ;(prisma.gameState.findUnique as any).mockResolvedValue({
+        id: 'singleton',
+        version: 2,
+        status: 'CONFIGURING',
+        currentTeamIndex: 0,
+        turnStartTime: new Date(1_700_000_000_000),
+        turnDuration: 30,
+        totalReserveTime: 120,
+        teamCount: 2,
+      })
+      ;(prisma.team.findMany as any).mockResolvedValue([
+        { id: 't1', name: 'Radiant', order: 0, reserveTime: 120 },
+        { id: 't2', name: 'Dire', order: 1, reserveTime: 120 },
+      ])
+      ;(prisma.member.findMany as any).mockResolvedValue([
+        {
+          id: 'm1',
+          name: 'Alice',
+          info: 'Carry',
+          avatarUrl: null,
+          backgroundUrl: null,
+          mediaVersion: 0,
+          teamId: null,
+          isBanned: false,
+          pickedAt: null,
+          order: 0,
+        },
+        {
+          id: 'm2',
+          name: 'Bob',
+          info: 'Mid',
+          avatarUrl: null,
+          backgroundUrl: null,
+          mediaVersion: 0,
+          teamId: null,
+          isBanned: false,
+          pickedAt: null,
+          order: 0,
+        },
+      ])
+
+      const initial = await store.getSnapshot()
+      expect(initial.version).toBe(2)
+
+      // 2. Warm START: 1-RTT top-level updateMany, ZERO $transaction calls!
+      vi.clearAllMocks()
+      ;(prisma.gameState.updateMany as any).mockResolvedValueOnce({ count: 1 })
+
+      const startRes = await store.mutate(
+        { type: 'START', mutationId: 'fast-start-1', expectedVersion: 2 },
+        { nowMs: 1_700_000_001_000 }
+      )
+      expect(startRes.ok).toBe(true)
+      if (!startRes.ok) return
+      expect(startRes.snapshot.version).toBe(3)
+      expect(startRes.snapshot.gameState.status).toBe('PICKING')
+      expect(prisma.gameState.updateMany).toHaveBeenCalledTimes(1)
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+
+      // 3. Warm PICK: 1-RTT atomic CTE via $queryRaw, ZERO $transaction calls!
+      vi.clearAllMocks()
+      const queryRawMock = vi.fn().mockResolvedValueOnce([
+        { stateLocked: 1, memberClaimed: 1, stateUpdated: 1 },
+      ])
+      ;(prisma as unknown as { $queryRaw: typeof queryRawMock }).$queryRaw = queryRawMock
+
+      const pickRes = await store.mutate(
+        {
+          type: 'PICK',
+          mutationId: 'fast-pick-1',
+          memberId: 'm1',
+          teamId: 't1',
+          expectedVersion: 3,
+        },
+        { nowMs: 1_700_000_006_000 }
+      )
+      expect(pickRes.ok).toBe(true)
+      if (!pickRes.ok) return
+      expect(pickRes.snapshot.version).toBe(4)
+      expect(pickRes.pickedMemberId).toBe('m1')
+      expect(queryRawMock).toHaveBeenCalledTimes(1)
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+      expect(prisma.gameState.updateMany).not.toHaveBeenCalled()
+      expect(prisma.member.updateMany).not.toHaveBeenCalled()
+      expect(prisma.team.update).not.toHaveBeenCalled()
+
+      // 4. Stale warm cache on PICK (stateLocked: 0) -> clears warm cache and falls back to $transaction reload
+      vi.clearAllMocks()
+      queryRawMock.mockResolvedValueOnce([
+        { stateLocked: 0, memberClaimed: 0, stateUpdated: 0 },
+      ])
+      ;(prisma.gameState.findUnique as any).mockResolvedValueOnce({
+        id: 'singleton',
+        version: 4,
+        status: 'PICKING',
+        currentTeamIndex: 1,
+        turnStartTime: new Date(1_700_000_006_000),
+        turnDuration: 30,
+        totalReserveTime: 120,
+        teamCount: 2,
+      })
+      ;(prisma.team.findMany as any).mockResolvedValueOnce([
+        { id: 't1', name: 'Radiant', order: 0, reserveTime: 120 },
+        { id: 't2', name: 'Dire', order: 1, reserveTime: 120 },
+      ])
+      ;(prisma.member.findMany as any).mockResolvedValueOnce([
+        {
+          id: 'm1',
+          name: 'Alice',
+          info: 'Carry',
+          avatarUrl: null,
+          backgroundUrl: null,
+          mediaVersion: 0,
+          teamId: 't1',
+          isBanned: false,
+          pickedAt: new Date(1_700_000_006_000),
+          order: 0,
+        },
+        {
+          id: 'm2',
+          name: 'Bob',
+          info: 'Mid',
+          avatarUrl: null,
+          backgroundUrl: null,
+          mediaVersion: 0,
+          teamId: null,
+          isBanned: false,
+          pickedAt: null,
+          order: 0,
+        },
+      ])
+      ;(prisma.gameState.updateMany as any).mockResolvedValueOnce({ count: 1 })
+      ;(prisma.member.updateMany as any).mockResolvedValueOnce({ count: 1 })
+      ;(prisma.team.update as any).mockResolvedValueOnce({})
+
+      const fallbackRes = await store.mutate(
+        {
+          type: 'PICK',
+          mutationId: 'fallback-pick-2',
+          memberId: 'm2',
+          teamId: 't2',
+          expectedVersion: 4,
+        },
+        { nowMs: 1_700_000_010_000 }
+      )
+      expect(fallbackRes.ok).toBe(true)
+      if (!fallbackRes.ok) return
+      expect(fallbackRes.snapshot.version).toBe(5)
+      expect(fallbackRes.snapshot.gameState.status).toBe('COMPLETED')
+      expect(queryRawMock).toHaveBeenCalledTimes(1)
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     })
   })
 

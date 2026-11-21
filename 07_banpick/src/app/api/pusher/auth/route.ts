@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getPusherServer, PUSHER_PRIVATE_CHANNEL } from '@/lib/pusher'
+import {
+  getPusherServer,
+  PUSHER_PRIVATE_CHANNEL,
+  shouldTriggerPusher,
+  warmPusherConnection,
+} from '@/lib/pusher'
+import { scheduleAfter } from '@/lib/realtime'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,6 +62,9 @@ export async function POST(req: Request) {
     }
 
     const authResponse = pusher.authorizeChannel(socketId, channelName)
+    if (shouldTriggerPusher()) {
+      scheduleAfter(() => warmPusherConnection())
+    }
     return NextResponse.json(authResponse, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error('POST /api/pusher/auth error:', error)

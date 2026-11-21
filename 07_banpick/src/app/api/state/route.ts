@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { materializeState } from '@/lib/gameEngine'
+import { shouldTriggerPusher, warmPusherConnection } from '@/lib/pusher'
+import { scheduleAfter } from '@/lib/realtime'
 import { getStateStore } from '@/lib/stateStore'
 
 export const dynamic = 'force-dynamic'
@@ -24,6 +26,10 @@ function parseSinceVersion(req?: Request): number | null {
 
 export async function GET(req?: Request) {
   try {
+    if (shouldTriggerPusher()) {
+      scheduleAfter(() => warmPusherConnection())
+    }
+
     const sinceVersion = parseSinceVersion(req)
     const store = getStateStore()
 

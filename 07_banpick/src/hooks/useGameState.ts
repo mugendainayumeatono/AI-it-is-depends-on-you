@@ -69,7 +69,8 @@ interface TentativeRemoteEntry {
 
 const EMPTY_TEAMS: Team[] = []
 const EMPTY_MEMBERS: Member[] = []
-const TENTATIVE_TTL_MS = 400
+const TENTATIVE_TTL_MS = 5000
+const MAX_SPECULATIVE_EVENT_CHARS = 8000
 const SSE_FALLBACK_POLL_MS = 1500
 const LEGACY_POLL_MS = 1000
 const MAX_SSE_BACKOFF_MS = 5000
@@ -275,6 +276,19 @@ function remapMutationTeamId(
   if (teams.some((t) => t.id === targetTeamId)) return mutation
   const remapped = teams.find((t) => t.order === teamOrder)
   return remapped ? { ...mutation, teamId: remapped.id } : mutation
+}
+
+function sanitizeMutationForSpeculativeBroadcast(mutation: GameMutation): GameMutation {
+  if (mutation.type !== 'MEMBER_ADD' && mutation.type !== 'MEMBER_UPDATE') {
+    return mutation
+  }
+  const stripDataUrl = (val: string | null | undefined): string | null | undefined =>
+    typeof val === 'string' && val.startsWith('data:') ? null : val
+  return {
+    ...mutation,
+    avatar: stripDataUrl(mutation.avatar),
+    background: stripDataUrl(mutation.background),
+  }
 }
 
 export function useGameState(): UseGameStateReturn {
@@ -760,20 +774,19 @@ export function useGameState(): UseGameStateReturn {
         recomputeDisplayState()
 
         // Optional Dual-Path speculative peer broadcast over Pusher Private Channel
-        if (
-          privateChannelReadyRef.current &&
-          privateChannelRef.current &&
-          (fullMutation.type === 'START' || fullMutation.type === 'PICK')
-        ) {
+        if (privateChannelReadyRef.current && privateChannelRef.current) {
           try {
+            const sanitized = sanitizeMutationForSpeculativeBroadcast(fullMutation)
             const speculative: SpeculativeClientEvent = {
               mutationId,
               clientId,
               baseVersion: confirmedRef.current?.version ?? 0,
               sentAt: enqueuedAt,
-              mutation: fullMutation,
+              mutation: sanitized,
             }
-            privateChannelRef.current.trigger('client-speculative-op', speculative)
+            if (JSON.stringify(speculative).length <= MAX_SPECULATIVE_EVENT_CHARS) {
+              privateChannelRef.current.trigger('client-speculative-op', speculative)
+            }
           } catch {
             // Silently ignore if Pusher Client Events are disabled in dashboard
           }

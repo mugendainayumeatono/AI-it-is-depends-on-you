@@ -3,11 +3,13 @@ import prisma from '@/lib/prisma'
 import type { SnapshotEvent, StateDelta } from '@/types'
 
 const mockTrigger = vi.fn()
+const mockGet = vi.fn()
 const mockPusherCtor = vi.fn()
 
 vi.mock('pusher', () => ({
   default: class MockPusher {
     trigger = mockTrigger
+    get = mockGet
     constructor(options: unknown) {
       mockPusherCtor(options)
     }
@@ -26,12 +28,16 @@ describe('Pusher Utility (src/lib/pusher.ts)', () => {
     delete process.env.PUSHER_SECRET
     delete process.env.NEXT_PUBLIC_PUSHER_CLUSTER
     globalThis.__banpickPusherCache = undefined
+    globalThis.__banpickPusherHttpsAgent = undefined
+    globalThis.__banpickPusherWarmTimestamp = undefined
     vi.clearAllMocks()
   })
 
   afterEach(() => {
     process.env = originalEnv
     globalThis.__banpickPusherCache = undefined
+    globalThis.__banpickPusherHttpsAgent = undefined
+    globalThis.__banpickPusherWarmTimestamp = undefined
   })
 
   it('initializes pusherServer/getPusherServer when all credentials are present', async () => {
@@ -209,5 +215,53 @@ describe('Pusher Utility (src/lib/pusher.ts)', () => {
       })
     )
     expect(prisma.gameState.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('attaches singleton keep-alive HTTPS agent to PusherServer and pre-warms TLS only in PUSHER mode', async () => {
+    process.env.PUSHER_APP_ID = 'app-id'
+    process.env.NEXT_PUBLIC_PUSHER_KEY = 'key'
+    process.env.PUSHER_SECRET = 'secret'
+    process.env.NEXT_PUBLIC_PUSHER_CLUSTER = 'us2'
+
+    const { getPusherHttpsAgent, getPusherServer, warmPusherConnection } = await import(
+      '@/lib/pusher'
+    )
+
+    const agent = getPusherHttpsAgent()
+    expect(agent).toBeDefined()
+    expect((agent as unknown as { keepAlive?: boolean }).keepAlive).toBe(true)
+    expect(getPusherHttpsAgent()).toBe(agent)
+
+    getPusherServer()
+    expect(mockPusherCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app-id',
+        cluster: 'us2',
+        useTLS: true,
+        agent,
+        timeout: 5000,
+      })
+    )
+
+    // 1. Strictly disabled in SSE and POLLING modes (zero calls to server.get!)
+    process.env.NEXT_PUBLIC_SYNC_METHOD = 'SSE'
+    await warmPusherConnection()
+    expect(mockGet).not.toHaveBeenCalled()
+
+    process.env.NEXT_PUBLIC_SYNC_METHOD = 'POLLING'
+    await warmPusherConnection()
+    expect(mockGet).not.toHaveBeenCalled()
+
+    // 2. Enabled in PUSHER mode with 20s cooldown rate-limiting
+    process.env.NEXT_PUBLIC_SYNC_METHOD = 'PUSHER'
+    mockGet.mockResolvedValue({ status: 200 })
+
+    await warmPusherConnection()
+    expect(mockGet).toHaveBeenCalledTimes(1)
+    expect(mockGet).toHaveBeenCalledWith({ path: '/channels/banpick-channel' })
+
+    // Second immediate call within 20s cooldown is skipped
+    await warmPusherConnection()
+    expect(mockGet).toHaveBeenCalledTimes(1)
   })
 })

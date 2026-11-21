@@ -860,4 +860,132 @@ describe('Hook: useGameState', () => {
     expect(result.current.gameState?.currentTeamIndex).toBe(1)
     expect(result.current.members.find((m) => m.id === 'm1')?.teamId).toBe('t1')
   })
+
+  it('retains speculative peer events past 1000ms (TENTATIVE_TTL_MS = 5000) without premature 400ms rollback and broadcasts all mutation types with data: URLs stripped', async () => {
+    vi.useFakeTimers()
+    process.env.NEXT_PUBLIC_SYNC_METHOD = 'PUSHER'
+    process.env.NEXT_PUBLIC_PUSHER_KEY = 'pub-key'
+    process.env.NEXT_PUBLIC_PUSHER_CLUSTER = 'us2'
+
+    const t0 = Date.now()
+    const v2Snap = buildSnapshot({
+      version: 2,
+      serverTime: t0,
+      gameState: {
+        ...buildSnapshot().gameState,
+        version: 2,
+        status: 'PICKING',
+        currentTeamIndex: 0,
+        turnStartTime: new Date(t0).toISOString(),
+      },
+    })
+
+    global.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('/api/state')) {
+        return Promise.resolve(makeJsonResponse(materializeState(v2Snap)))
+      }
+      if (init?.method === 'POST') {
+        return new Promise<Response>(() => {
+          // Keep POST pending while inspecting speculative trigger
+        })
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`))
+    })
+
+    const { result } = renderHook(() => useGameState())
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(result.current.version).toBe(2)
+
+    const privHandlers = pusherMocks.channelHandlers.get('private-banpick-channel')
+    const specHandler = privHandlers?.get('client-speculative-op')
+    const subSucceeded = privHandlers?.get('pusher:subscription_succeeded')
+    const stateHandler = pusherMocks.channelHandlers.get('banpick-channel')?.get('state-update')
+    expect(specHandler).toBeDefined()
+    expect(subSucceeded).toBeDefined()
+    expect(stateHandler).toBeDefined()
+
+    // 1. Peer sends speculative PICK at t = 0
+    act(() => {
+      specHandler!({
+        mutationId: 'peer-pick-m1',
+        clientId: 'peer-client-b',
+        baseVersion: 2,
+        sentAt: Date.now(),
+        mutation: {
+          type: 'PICK',
+          mutationId: 'peer-pick-m1',
+          clientId: 'peer-client-b',
+          memberId: 'm1',
+          teamId: 't1',
+        },
+      })
+    })
+    expect(result.current.members.find((m) => m.id === 'm1')?.teamId).toBe('t1')
+
+    // Advance 1000ms (well past old 400ms TTL, within new 5000ms TTL) -> speculative preview MUST survive without rollback!
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.members.find((m) => m.id === 'm1')?.teamId).toBe('t1')
+
+    // Authoritative server event arrives at t = 1200ms -> seamlessly replaces speculative entry
+    const v3Applied = applyMutation(
+      v2Snap,
+      { type: 'PICK', mutationId: 'peer-pick-m1', memberId: 'm1', teamId: 't1' },
+      { nowMs: Date.now() }
+    )
+    if (!v3Applied.ok) throw new Error('expected ok')
+    act(() => {
+      stateHandler!(v3Applied.event)
+    })
+    expect(result.current.version).toBe(3)
+    expect(result.current.members.find((m) => m.id === 'm1')?.teamId).toBe('t1')
+
+    // 2. Mark private channel ready and verify client-speculative-op fires for CONFIG, RANDOMIZE, and MEMBER_ADD (with data: stripped)
+    act(() => {
+      subSucceeded!({})
+    })
+    pusherMocks.mockTrigger.mockClear()
+
+    act(() => {
+      void result.current.dispatchMutation({
+        type: 'MEMBER_ADD',
+        id: 'spec-mem-1',
+        name: 'SpecHero',
+        info: 'Jungle',
+        avatar: 'data:image/jpeg;base64,' + 'A'.repeat(20_000),
+        background: 'https://cdn.example.com/bg.png',
+      })
+      void result.current.dispatchMutation({
+        type: 'CONFIG',
+        teamCount: 2,
+        turnDuration: 25,
+        totalReserveTime: 90,
+        teamNames: ['Alpha', 'Beta'],
+      })
+      void result.current.dispatchMutation({
+        type: 'RANDOMIZE',
+      })
+    })
+
+    expect(pusherMocks.mockTrigger).toHaveBeenCalledTimes(3)
+    const addTriggerArg = pusherMocks.mockTrigger.mock.calls[0][1] as {
+      mutation: { type: string; avatar: string | null; background: string | null }
+    }
+    expect(addTriggerArg.mutation.type).toBe('MEMBER_ADD')
+    expect(addTriggerArg.mutation.avatar).toBeNull()
+    expect(addTriggerArg.mutation.background).toBe('https://cdn.example.com/bg.png')
+    expect(JSON.stringify(addTriggerArg)).not.toContain('data:image/')
+
+    expect(pusherMocks.mockTrigger.mock.calls[1][1]).toMatchObject({
+      mutation: expect.objectContaining({ type: 'CONFIG', turnDuration: 25 }),
+    })
+    expect(pusherMocks.mockTrigger.mock.calls[2][1]).toMatchObject({
+      mutation: expect.objectContaining({ type: 'RANDOMIZE' }),
+    })
+  })
 })

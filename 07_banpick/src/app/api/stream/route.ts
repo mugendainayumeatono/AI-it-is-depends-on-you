@@ -16,7 +16,7 @@ export const maxDuration = 60
 
 const HEARTBEAT_INTERVAL_MS = 20_000
 const RECONNECT_RECYCLE_MS = 50_000
-const PRISMA_POLL_INTERVAL_MS = 500
+const PRISMA_POLL_INTERVAL_MS = 250
 const UPSTASH_SUBSCRIBE_READY_TIMEOUT_MS = 1_500
 
 function parseSinceVersion(req: Request): number {
@@ -315,7 +315,7 @@ export async function GET(req: Request) {
             bufferedLive.length = 0
           }
 
-          // Multi-instance Neon-only fallback: lightweight 1-integer PK version check every 500ms
+          // Multi-instance Neon-only fallback: lightweight 1-integer PK version check every 250ms
           if (storeKind === 'prisma' && !closed) {
             prismaPollTimer = setInterval(() => {
               if (closed || prismaPollInFlight) return

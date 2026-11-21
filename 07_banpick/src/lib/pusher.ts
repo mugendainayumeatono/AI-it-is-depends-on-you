@@ -1,3 +1,4 @@
+import https from 'node:https'
 import PusherServer from 'pusher'
 import type { InvalidateEvent, RealtimeEvent } from '@/types'
 
@@ -12,6 +13,8 @@ export const PUSHER_EVENT = 'state-update'
  */
 export const PUSHER_MAX_SAFE_BYTES = 9000
 
+const PUSHER_WARM_COOLDOWN_MS = 20_000
+
 interface CachedPusherEntry {
   signature: string
   instance: PusherServer
@@ -19,6 +22,20 @@ interface CachedPusherEntry {
 
 declare global {
   var __banpickPusherCache: CachedPusherEntry | undefined
+  var __banpickPusherHttpsAgent: https.Agent | undefined
+  var __banpickPusherWarmTimestamp: number | undefined
+}
+
+export function getPusherHttpsAgent(): https.Agent {
+  if (!globalThis.__banpickPusherHttpsAgent) {
+    globalThis.__banpickPusherHttpsAgent = new https.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 30000,
+      maxSockets: 16,
+      maxFreeSockets: 4,
+    })
+  }
+  return globalThis.__banpickPusherHttpsAgent
 }
 
 function getPusherCredentials(): {
@@ -61,7 +78,9 @@ export function getPusherServer(): PusherServer | null {
     secret: creds.secret,
     cluster: creds.cluster,
     useTLS: true,
-  })
+    agent: getPusherHttpsAgent(),
+    timeout: 5000,
+  } as PusherServer.Options)
 
   globalThis.__banpickPusherCache = { signature, instance }
   return instance
@@ -78,6 +97,28 @@ export function shouldTriggerPusher(): boolean {
     return false
   }
   return isPusherServerConfigured()
+}
+
+export async function warmPusherConnection(): Promise<void> {
+  if (!shouldTriggerPusher()) return
+
+  const now = Date.now()
+  const lastWarmed = globalThis.__banpickPusherWarmTimestamp ?? 0
+  if (now - lastWarmed < PUSHER_WARM_COOLDOWN_MS) {
+    return
+  }
+
+  const server = getPusherServer()
+  if (!server || typeof (server as { get?: unknown }).get !== 'function') {
+    return
+  }
+
+  globalThis.__banpickPusherWarmTimestamp = now
+  try {
+    await server.get({ path: `/channels/${PUSHER_CHANNEL}` })
+  } catch {
+    // Ignore background TLS pre-warm errors
+  }
 }
 
 export function buildSafePusherPayload(event?: RealtimeEvent): RealtimeEvent | (InvalidateEvent & { timestamp: number }) {
