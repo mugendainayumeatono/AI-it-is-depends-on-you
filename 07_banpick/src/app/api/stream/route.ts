@@ -1,10 +1,15 @@
-import prisma from '@/lib/prisma'
+import { applyRealtimeEvent } from '@/lib/gameEngine'
 import {
   subscribeLocalEvents,
   subscribeUpstashPubSub,
 } from '@/lib/realtime'
 import { getStateStore } from '@/lib/stateStore'
-import type { RealtimeEvent, SnapshotEvent } from '@/types'
+import type {
+  NormalizedGameSnapshot,
+  RealtimeEvent,
+  SnapshotEvent,
+  StateDelta,
+} from '@/types'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -26,6 +31,85 @@ function parseSinceVersion(req: Request): number {
   }
 }
 
+/**
+ * When a single-version step (`prev.version + 1 === next.version`) occurs
+ * across serverless instances in Prisma fallback mode, synthesize a compact
+ * ~300-byte `StateDelta` if only `gameState`, at most 1 team's `reserveTime`,
+ * and at most 1 member's `teamId`/`pickedAt` changed.
+ */
+function trySynthesizeDelta(
+  prev: NormalizedGameSnapshot,
+  next: NormalizedGameSnapshot
+): StateDelta | null {
+  if (next.version !== prev.version + 1) return null
+  if (prev.teams.length !== next.teams.length || prev.members.length !== next.members.length) {
+    return null
+  }
+
+  const prevTeamsById = new Map(prev.teams.map((t) => [t.id, t]))
+  let teamPatch: { id: string; reserveTime: number } | undefined
+  for (const team of next.teams) {
+    const prevTeam = prevTeamsById.get(team.id)
+    if (!prevTeam || prevTeam.name !== team.name || prevTeam.order !== team.order) {
+      return null
+    }
+    if (prevTeam.reserveTime !== team.reserveTime) {
+      if (teamPatch) return null
+      teamPatch = { id: team.id, reserveTime: team.reserveTime }
+    }
+  }
+
+  const prevMembersById = new Map(prev.members.map((m) => [m.id, m]))
+  let memberPatch: { id: string; teamId: string | null; pickedAt: string | null } | undefined
+  for (const member of next.members) {
+    const prevMember = prevMembersById.get(member.id)
+    if (
+      !prevMember ||
+      prevMember.name !== member.name ||
+      prevMember.info !== member.info ||
+      prevMember.avatar !== member.avatar ||
+      prevMember.background !== member.background ||
+      prevMember.isBanned !== member.isBanned
+    ) {
+      return null
+    }
+    if (prevMember.teamId !== member.teamId || prevMember.pickedAt !== member.pickedAt) {
+      if (memberPatch) return null
+      // Only synthesize PICK/AUTO_PICK when a member was assigned to a team (not unpicked by CONFIG reset)
+      if (member.teamId === null) return null
+      memberPatch = {
+        id: member.id,
+        teamId: member.teamId,
+        pickedAt: member.pickedAt,
+      }
+    }
+  }
+
+  // If neither member nor team changed, only synthesize START when status moved to PICKING
+  if (!memberPatch && !teamPatch && next.gameState.status !== 'PICKING') {
+    return null
+  }
+
+  const op: StateDelta['op'] = !memberPatch
+    ? 'START'
+    : teamPatch && teamPatch.reserveTime === 0
+      ? 'AUTO_PICK'
+      : 'PICK'
+
+  return {
+    kind: 'delta',
+    version: next.version,
+    prevVersion: prev.version,
+    serverTime: next.serverTime,
+    mutationId: next.lastMutationId ?? null,
+    clientId: null,
+    op,
+    gameState: next.gameState,
+    ...(teamPatch ? { teamPatch } : {}),
+    ...(memberPatch ? { memberPatch } : {}),
+  }
+}
+
 export async function GET(req: Request) {
   const sinceVersion = parseSinceVersion(req)
   const store = getStateStore()
@@ -38,6 +122,7 @@ export async function GET(req: Request) {
     start(controller) {
       let closed = false
       let lastSentVersion = sinceVersion
+      let lastSnapshot: NormalizedGameSnapshot | null = null
       let catchUpDone = false
       const bufferedLive: RealtimeEvent[] = []
 
@@ -70,6 +155,14 @@ export async function GET(req: Request) {
         if (closed) return
         if (event.version <= lastSentVersion) return
         lastSentVersion = event.version
+        if (event.kind === 'snapshot') {
+          lastSnapshot = event.snapshot
+        } else if (event.kind === 'delta' && lastSnapshot) {
+          const applied = applyRealtimeEvent(lastSnapshot, event)
+          if (applied.applied && applied.next) {
+            lastSnapshot = applied.next
+          }
+        }
         sendEvent('state', event)
       }
 
@@ -203,6 +296,7 @@ export async function GET(req: Request) {
               sendStateEvent(snapEvent)
             }
           } else {
+            lastSnapshot = snapshot
             lastSentVersion = Math.max(lastSentVersion, snapshot.version)
             sendEvent('connected', {
               version: snapshot.version,
@@ -221,31 +315,40 @@ export async function GET(req: Request) {
             bufferedLive.length = 0
           }
 
-          // Multi-instance Neon-only fallback: lightweight version check every 500ms
+          // Multi-instance Neon-only fallback: lightweight 1-integer PK version check every 500ms
           if (storeKind === 'prisma' && !closed) {
             prismaPollTimer = setInterval(() => {
               if (closed || prismaPollInFlight) return
               prismaPollInFlight = true
               void (async () => {
                 try {
-                  const row = await prisma.gameState.findUnique({
-                    where: { id: 'singleton' },
-                    select: { version: true },
-                  })
-                  if (closed || !row || row.version <= lastSentVersion) return
+                  const currentVersion = store.getCurrentVersion
+                    ? await store.getCurrentVersion()
+                    : (await store.getSnapshot()).version
+                  if (closed || currentVersion <= lastSentVersion) return
 
                   const fresh = await store.getSnapshot()
                   if (closed || fresh.version <= lastSentVersion) return
 
-                  const snapEvent: SnapshotEvent = {
-                    kind: 'snapshot',
-                    version: fresh.version,
-                    serverTime: fresh.serverTime,
-                    mutationId: fresh.lastMutationId ?? null,
-                    clientId: null,
-                    snapshot: fresh,
+                  const delta =
+                    lastSnapshot && fresh.version === lastSnapshot.version + 1
+                      ? trySynthesizeDelta(lastSnapshot, fresh)
+                      : null
+
+                  if (delta) {
+                    lastSnapshot = fresh
+                    sendStateEvent(delta)
+                  } else {
+                    const snapEvent: SnapshotEvent = {
+                      kind: 'snapshot',
+                      version: fresh.version,
+                      serverTime: fresh.serverTime,
+                      mutationId: fresh.lastMutationId ?? null,
+                      clientId: null,
+                      snapshot: fresh,
+                    }
+                    sendStateEvent(snapEvent)
                   }
-                  sendStateEvent(snapEvent)
                 } catch (err) {
                   if (!closed) {
                     console.error('[banpick] SSE prisma fallback poll error:', err)

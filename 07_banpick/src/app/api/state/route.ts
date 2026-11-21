@@ -25,8 +25,23 @@ function parseSinceVersion(req?: Request): number | null {
 export async function GET(req?: Request) {
   try {
     const sinceVersion = parseSinceVersion(req)
-    const snapshot = await getStateStore().getSnapshot()
+    const store = getStateStore()
 
+    if (sinceVersion !== null && store.getCurrentVersion) {
+      const currentVersion = await store.getCurrentVersion()
+      if (currentVersion <= sinceVersion) {
+        return NextResponse.json(
+          {
+            unchanged: true,
+            version: currentVersion,
+            serverTime: Date.now(),
+          },
+          { headers: NO_STORE_HEADERS }
+        )
+      }
+    }
+
+    const snapshot = await store.getSnapshot()
     if (sinceVersion !== null && snapshot.version <= sinceVersion) {
       return NextResponse.json(
         {

@@ -47,6 +47,7 @@ export type StoreMutationResult =
 
 export interface StateStore {
   getSnapshot(): Promise<NormalizedGameSnapshot>
+  getCurrentVersion?(): Promise<number>
   mutate(mutation: GameMutation, opts?: { nowMs?: number }): Promise<StoreMutationResult>
   getMedia(memberId: string, field: 'avatar' | 'background'): Promise<string | null>
   getEventsSince(sinceVersion: number): Promise<RealtimeEvent[] | null>
@@ -238,6 +239,7 @@ interface PrismaCacheData {
 declare global {
   var __banpickMemoryStore: MemoryStoreData | undefined
   var __banpickPrismaCache: PrismaCacheData | undefined
+  var __banpickPrismaCachedSnapshot: NormalizedGameSnapshot | undefined
   var __banpickStateStoreOverride: StateStore | null | undefined
   var __banpickStateStoreCached: { key: string; store: StateStore } | undefined
   var __banpickLegacyMediaBackfilled: boolean | undefined
@@ -752,6 +754,10 @@ export class InMemoryStateStore implements StateStore {
     return cloneSnapshot(data.snapshot, Date.now())
   }
 
+  async getCurrentVersion(): Promise<number> {
+    return getMemoryStoreData().snapshot.version
+  }
+
   async mutate(mutation: GameMutation, opts?: { nowMs?: number }): Promise<StoreMutationResult> {
     const data = getMemoryStoreData()
     const nowMs = opts?.nowMs ?? Date.now()
@@ -866,7 +872,28 @@ export class PrismaStateStore implements StateStore {
 
   async getSnapshot(): Promise<NormalizedGameSnapshot> {
     await ensureLegacyMediaUrlsBackfilled()
-    return loadSnapshotFromPrismaClient(prisma, Date.now())
+    const snap = await loadSnapshotFromPrismaClient(prisma, Date.now())
+    globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(snap)
+    return snap
+  }
+
+  async getCurrentVersion(): Promise<number> {
+    await ensureLegacyMediaUrlsBackfilled()
+    const row = await prisma.gameState.findUnique({
+      where: { id: 'singleton' },
+      select: { version: true },
+    })
+    if (row && typeof row.version === 'number') {
+      if (
+        globalThis.__banpickPrismaCachedSnapshot &&
+        globalThis.__banpickPrismaCachedSnapshot.version !== row.version
+      ) {
+        globalThis.__banpickPrismaCachedSnapshot = undefined
+      }
+      return row.version
+    }
+    const snap = await this.getSnapshot()
+    return snap.version
   }
 
   async mutate(mutation: GameMutation, opts?: { nowMs?: number }): Promise<StoreMutationResult> {
@@ -885,60 +912,112 @@ export class PrismaStateStore implements StateStore {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const txResult = await prisma.$transaction(async (tx) => {
-          const current = await loadSnapshotFromPrismaClient(tx, nowMs)
-
           let prepared: GameMutation = mutation
           if (mutation.type === 'MEMBER_ADD' && !mutation.id) {
             prepared = { ...mutation, id: generateId() }
           }
 
-          const applied = applyMutation(current, prepared, {
-            nowMs,
-            generateId,
-            isOptimistic: false,
-          })
+          // Fast warm-cache path: if we already have an in-process snapshot on attempt 0,
+          // try applying & locking against its version without 3-table SELECT queries first.
+          let current: NormalizedGameSnapshot | null = null
+          let applied: ReturnType<typeof applyMutation> | null = null
+          let locked = { count: 0 }
 
-          if (!applied.ok) {
-            return {
-              ok: false as const,
-              status: applied.status,
-              error: applied.error,
-              code: applied.code,
-              snapshot: current,
+          const warmBase = attempt === 0 ? globalThis.__banpickPrismaCachedSnapshot : undefined
+          if (warmBase) {
+            const candidate = applyMutation(warmBase, prepared, {
+              nowMs,
+              generateId,
+              isOptimistic: false,
+            })
+            if (candidate.ok && !candidate.alreadyApplied) {
+              const next = candidate.next
+              const turnStartDate = next.gameState.turnStartTime
+                ? new Date(next.gameState.turnStartTime)
+                : new Date(nowMs)
+
+              locked = await tx.gameState.updateMany({
+                where: { id: 'singleton', version: warmBase.version },
+                data: {
+                  version: next.version,
+                  currentTeamIndex: next.gameState.currentTeamIndex,
+                  turnStartTime: turnStartDate,
+                  status: next.gameState.status,
+                  turnDuration: next.gameState.turnDuration,
+                  totalReserveTime: next.gameState.totalReserveTime,
+                  teamCount: next.gameState.teamCount,
+                },
+              })
+
+              if (locked.count > 0) {
+                current = warmBase
+                applied = candidate
+              } else {
+                // Warm cache was superseded by another instance; clear and reload below
+                globalThis.__banpickPrismaCachedSnapshot = undefined
+              }
             }
           }
 
-          if (applied.alreadyApplied) {
-            return {
-              ok: true as const,
-              snapshot: current,
-              event: applied.event,
-              alreadyApplied: true,
+          if (!current || !applied) {
+            current = await loadSnapshotFromPrismaClient(tx, nowMs)
+            globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(current)
+
+            applied = applyMutation(current, prepared, {
+              nowMs,
+              generateId,
+              isOptimistic: false,
+            })
+
+            if (!applied.ok) {
+              return {
+                ok: false as const,
+                status: applied.status,
+                error: applied.error,
+                code: applied.code,
+                snapshot: current,
+              }
             }
+
+            if (applied.alreadyApplied) {
+              return {
+                ok: true as const,
+                snapshot: current,
+                event: applied.event,
+                alreadyApplied: true,
+              }
+            }
+
+            const next = applied.next
+            const turnStartDate = next.gameState.turnStartTime
+              ? new Date(next.gameState.turnStartTime)
+              : new Date(nowMs)
+
+            // Acquire singleton row lock & verify optimistic version FIRST to serialize writers cleanly
+            locked = await tx.gameState.updateMany({
+              where: { id: 'singleton', version: current.version },
+              data: {
+                version: next.version,
+                currentTeamIndex: next.gameState.currentTeamIndex,
+                turnStartTime: turnStartDate,
+                status: next.gameState.status,
+                turnDuration: next.gameState.turnDuration,
+                totalReserveTime: next.gameState.totalReserveTime,
+                teamCount: next.gameState.teamCount,
+              },
+            })
+
+            if (locked.count === 0) {
+              globalThis.__banpickPrismaCachedSnapshot = undefined
+              throw new PrismaVersionConflictError(409, 'VERSION_CONFLICT', 'Turn has already been taken')
+            }
+          }
+
+          if (!applied.ok || applied.alreadyApplied) {
+            throw new Error('Unreachable state in PrismaStateStore.mutate')
           }
 
           const next = applied.next
-          const turnStartDate = next.gameState.turnStartTime
-            ? new Date(next.gameState.turnStartTime)
-            : new Date(nowMs)
-
-          // Acquire singleton row lock & verify optimistic version FIRST to serialize writers cleanly
-          const locked = await tx.gameState.updateMany({
-            where: { id: 'singleton', version: current.version },
-            data: {
-              version: next.version,
-              currentTeamIndex: next.gameState.currentTeamIndex,
-              turnStartTime: turnStartDate,
-              status: next.gameState.status,
-              turnDuration: next.gameState.turnDuration,
-              totalReserveTime: next.gameState.totalReserveTime,
-              teamCount: next.gameState.teamCount,
-            },
-          })
-
-          if (locked.count === 0) {
-            throw new PrismaVersionConflictError(409, 'VERSION_CONFLICT', 'Turn has already been taken')
-          }
 
           // Persist minimal targeted entity changes inside the same transaction
           switch (prepared.type) {
@@ -1087,6 +1166,7 @@ export class PrismaStateStore implements StateStore {
         })
 
         if (txResult.ok) {
+          globalThis.__banpickPrismaCachedSnapshot = cloneSnapshot(txResult.snapshot)
           if (!txResult.alreadyApplied) {
             pushRingEvent(cache.events, txResult.event)
           }
@@ -1095,6 +1175,7 @@ export class PrismaStateStore implements StateStore {
         return txResult
       } catch (error) {
         if (error instanceof PrismaVersionConflictError) {
+          globalThis.__banpickPrismaCachedSnapshot = undefined
           const isRetryable = attempt + 1 < maxAttempts
           if (isRetryable) {
             continue
@@ -1801,6 +1882,11 @@ export class UpstashRedisStateStore implements StateStore {
     return this.hydrateRedisSnapshot(nowMs)
   }
 
+  async getCurrentVersion(): Promise<number> {
+    const snap = await this.getSnapshot()
+    return snap.version
+  }
+
   async mutate(mutation: GameMutation, opts?: { nowMs?: number }): Promise<StoreMutationResult> {
     const nowMs = opts?.nowMs ?? Date.now()
     const nowIso = new Date(nowMs).toISOString()
@@ -2102,6 +2188,7 @@ export function resetStateStore(): void {
   globalThis.__banpickStateStoreCached = undefined
   globalThis.__banpickMemoryStore = undefined
   globalThis.__banpickPrismaCache = undefined
+  globalThis.__banpickPrismaCachedSnapshot = undefined
   globalThis.__banpickLegacyMediaBackfilled = undefined
   globalThis.__banpickLegacyMediaBackfillPromise = undefined
 }
