@@ -12,6 +12,7 @@ import type {
 } from '@/types'
 
 export const dynamic = 'force-dynamic'
+export const preferredRegion = 'hnd1'
 export const maxDuration = 60
 
 const HEARTBEAT_INTERVAL_MS = 20_000

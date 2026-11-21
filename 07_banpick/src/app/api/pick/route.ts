@@ -5,6 +5,7 @@ import { getStateStore } from '@/lib/stateStore'
 import type { GameMutation, MutationErrorResponse, MutationSuccessResponse } from '@/types'
 
 export const dynamic = 'force-dynamic'
+export const preferredRegion = 'hnd1'
 
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-store',

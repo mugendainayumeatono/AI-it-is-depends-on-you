@@ -27,23 +27,24 @@
 
 ---
 
-## 2. 关键前提：Vercel `<100ms` 同区部署检查清单
+## 2. 关键前提：Vercel `<100ms` 同区部署检查清单（当前已锁定东京 `hnd1`）
 
-> **极其重要**：物理光速决定跨洋单次 RTT 高达 **180–250ms**。Vercel Serverless Functions 默认部署在 **美东 `iad1`**；如果您的用户在亚洲或 Pusher 选在 `ap1`，而 Vercel 函数留在 `iad1`，延迟将立刻飙升至数百毫秒以上！
+> **极其重要**：物理光速决定跨洋单次 RTT 高达 **180–250ms**。Vercel Serverless Functions 默认部署在 **美东 `iad1`**；本项目已通过 `vercel.json`（`"regions": ["hnd1"]`）与全部 8 个 API 路由的 `export const preferredRegion = 'hnd1'` **代码级强制锁定在东京（`hnd1`）**，覆盖 Vercel 控制台默认 `iad1` 设置，与东亚 Pusher `ap3`（东京）及亚太数据库实现同区/近邻低延迟协同！
 
 请务必将 **所有已启用的组件** 部署在距离用户最近的 **同一个云区域**：
 
 | 目标用户区域 | Vercel Function Region | Neon Postgres 区域 | Upstash Redis 区域 | 可选 Pusher 集群 |
 | --- | --- | --- | --- | --- |
-| **亚太 / 中国周边** | `sin1`（新加坡） | `ap-southeast-1`（新加坡） | `ap-southeast-1`（新加坡） | `ap1`（新加坡） |
+| **东亚 / 中国周边（当前激活配置）** | **`hnd1`（东京，已代码锁定）** | **`ap-northeast-1`（东京）或 `ap-southeast-1`（新加坡）** | **`ap-northeast-1`（东京）** | **`ap3`（东京）** |
+| **东南亚 / 亚太** | `sin1`（新加坡） | `ap-southeast-1`（新加坡） | `ap-southeast-1`（新加坡） | `ap1`（新加坡） |
 | **北美东部** | `iad1`（美东华盛顿） | `us-east-1`（美东弗吉尼亚） | `us-east-1`（美东弗吉尼亚） | `us2`（美东） |
 | **欧洲** | `fra1`（法兰克福） | `eu-central-1`（法兰克福） | `eu-central-1`（法兰克福） | `eu`（爱尔兰/欧洲） |
 
 **检查项**：
-- [ ] 在 Vercel 项目页面 -> **Settings -> Functions -> Function Region** 中将函数区域设置为与数据库相同的区域（切勿保留默认的 `iad1` 而把数据库建在新加坡！）。
-- [ ] Neon Postgres 项目区域与 Vercel Function Region 一致。
-- [ ] Upstash Redis 数据库主区域与 Vercel Function Region 一致。
-- [ ] 若使用 Pusher，Cluster 与 Vercel Function Region 一致。
+- [x] 项目已通过 `vercel.json`（`"regions": ["hnd1"]`）和全部 `src/app/api/**` 路由的 `export const preferredRegion = 'hnd1'` 代码锁定 Vercel Function Region 为 **东京 `hnd1`**（无需担心 Vercel 控制台默认回退到 `iad1`）。
+- [ ] Neon Postgres 项目区域建议使用 `ap-northeast-1`（东京）或 `ap-southeast-1`（新加坡）。
+- [ ] Upstash Redis 数据库主区域设置为 `ap-northeast-1`（东京，与 `hnd1` 同区）。
+- [ ] 若使用 Pusher，Cluster 设置为 `ap3`（东京，与 `hnd1` 同城 `<5ms`）。
 
 ---
 

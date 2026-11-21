@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getStateStore } from '@/lib/stateStore'
 
 export const dynamic = 'force-dynamic'
+export const preferredRegion = 'hnd1'
 
 const DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]+)$/
 

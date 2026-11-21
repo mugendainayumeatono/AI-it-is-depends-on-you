@@ -115,13 +115,14 @@ npx tsc --noEmit    # Run TypeScript type checks
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for the complete step-by-step guide (including Vercel Marketplace setup for Neon & Upstash Redis).
 
-**Critical `<100ms` Same-Region Co-Location Checklist:**
-To prevent 180–250ms cross-ocean round-trips, **all** active components MUST be provisioned in the **same geographic region** closest to your users:
+**Critical `<100ms` Same-Region Co-Location Checklist (Active Tokyo `hnd1` Configuration):**
+To prevent 180–250ms cross-ocean round-trips, **all** active components MUST be provisioned in the **same geographic region** closest to your users. This repository pins all Vercel Serverless Functions to **Tokyo (`hnd1`)** in both `vercel.json` (`"regions": ["hnd1"]`) and Next.js App Router route segment configs (`export const preferredRegion = 'hnd1'` across all 8 `src/app/api/**` handlers), overriding the Vercel dashboard `iad1` default:
 
 | Target Users | Vercel Function Region | Neon Postgres Region | Upstash Redis Region | Optional Pusher Cluster |
 | --- | --- | --- | --- | --- |
-| **Asia / APAC** | `sin1` (Singapore) | `ap-southeast-1` (Singapore) | `ap-southeast-1` (Singapore) | `ap1` (Singapore) |
+| **East Asia / APAC (Active Config)** | **`hnd1` (Tokyo, pinned in code)** | **`ap-northeast-1` (Tokyo) or `ap-southeast-1` (Singapore)** | **`ap-northeast-1` (Tokyo)** | **`ap3` (Tokyo)** |
+| **Southeast Asia / APAC** | `sin1` (Singapore) | `ap-southeast-1` (Singapore) | `ap-southeast-1` (Singapore) | `ap1` (Singapore) |
 | **US East** | `iad1` (Washington, D.C.) | `us-east-1` (N. Virginia) | `us-east-1` (N. Virginia) | `us2` (US East) |
 | **Europe** | `fra1` (Frankfurt) | `eu-central-1` (Frankfurt) | `eu-central-1` (Frankfurt) | `eu` (Ireland / EU) |
 
-Set the **Function Region** in Vercel Project Settings -> **Functions** -> **Function Region** (Vercel defaults to `iad1` if unchanged!).
+With `vercel.json` (`"regions": ["hnd1"]`) and `preferredRegion = 'hnd1'`, Next.js emits `"regions": ["hnd1"]` in `.vc-config.json` for every API function automatically.

@@ -8,6 +8,7 @@ import {
 import { scheduleAfter } from '@/lib/realtime'
 
 export const dynamic = 'force-dynamic'
+export const preferredRegion = 'hnd1'
 
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-store',
